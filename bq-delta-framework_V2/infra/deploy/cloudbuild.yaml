@@ -1,0 +1,63 @@
+# infra/deploy/cloudbuild.yaml
+# Cloud Build trigger — runs on push to main branch
+# Required Cloud Build SA permissions:
+#   roles/run.admin, roles/artifactregistry.writer, roles/iam.serviceAccountUser
+
+substitutions:
+  _PROJECT:    ${PROJECT_ID}
+  _REGION:     us-central1
+  _REPO:       bq-delta-images
+  _SERVICE:    bq-delta-dashboard
+  _IMAGE:      ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/${_SERVICE}
+
+steps:
+  # ── Step 1: Build Docker image ──────────────────────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: build
+    args:
+      - build
+      - --tag=$_IMAGE:$SHORT_SHA
+      - --tag=$_IMAGE:latest
+      - --cache-from=$_IMAGE:latest
+      - --file=Dockerfile
+      - .
+
+  # ── Step 2: Push both tags to Artifact Registry ─────────────────────────────
+  - name: "gcr.io/cloud-builders/docker"
+    id: push-sha
+    waitFor: [build]
+    args: [push, "$_IMAGE:$SHORT_SHA"]
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: push-latest
+    waitFor: [build]
+    args: [push, "$_IMAGE:latest"]
+
+  # ── Step 3: Deploy to Cloud Run ─────────────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: deploy
+    waitFor: [push-sha, push-latest]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - $_SERVICE
+      - --image=$_IMAGE:$SHORT_SHA
+      - --platform=managed
+      - --region=$_REGION
+      - --service-account=dashboard-sa@${_PROJECT}.iam.gserviceaccount.com
+      - --min-instances=1
+      - --max-instances=3
+      - --memory=512Mi
+      - --cpu=1
+      - --port=8080
+      - --no-allow-unauthenticated
+      - --set-env-vars=GCP_PROJECT=${_PROJECT},FRAMEWORK_DATASET=framework_config,BQ_LOCATION=US,LOG_FORMAT=json,LOG_LEVEL=INFO,CACHE_TTL_SECONDS=60
+
+images:
+  - "$_IMAGE:$SHORT_SHA"
+  - "$_IMAGE:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_MEDIUM

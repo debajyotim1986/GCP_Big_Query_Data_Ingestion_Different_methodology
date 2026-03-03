@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GCP Batch Delta Ingestion — Architecture Compendium</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1f2d45;
+    --accent: #4f9cf9;
+    --accent2: #00d4aa;
+    --accent3: #f97316;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --text-mid: #94a3b8;
+    --best-c: #00d4aa;
+    --good-c: #4f9cf9;
+    --warn-c: #f97316;
+    --no-c: #475569;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    line-height: 1.7;
+    background-image:
+      radial-gradient(ellipse 80% 40% at 50% -10%, rgba(79,156,249,0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 40% 40% at 90% 90%, rgba(0,212,170,0.04) 0%, transparent 50%);
+  }
+
+  /* ── Sidebar nav ── */
+  .sidebar {
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    width: 240px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 28px 0;
+    overflow-y: auto;
+    z-index: 100;
+  }
+
+  .sidebar-logo {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .sidebar-logo .brand {
+    font-size: 11px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  .sidebar-logo .title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+
+  .nav-section {
+    font-size: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    padding: 12px 20px 6px;
+  }
+
+  .nav-item {
+    display: block;
+    padding: 7px 20px;
+    font-size: 12px;
+    color: var(--text-mid);
+    text-decoration: none;
+    transition: all 0.15s;
+    border-left: 2px solid transparent;
+  }
+
+  .nav-item:hover, .nav-item.active {
+    color: var(--accent);
+    background: rgba(79,156,249,0.06);
+    border-left-color: var(--accent);
+  }
+
+  .nav-item .icon { margin-right: 6px; }
+
+  /* ── Main content ── */
+  .main {
+    margin-left: 240px;
+    padding: 48px 56px;
+    max-width: 1100px;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    margin-bottom: 56px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hero-tag {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    border: 1px solid rgba(79,156,249,0.3);
+    padding: 4px 14px;
+    border-radius: 2px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+
+  .hero h1 {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    margin-bottom: 12px;
+  }
+
+  .hero h1 span { color: var(--accent); }
+
+  .hero-desc {
+    color: var(--text-mid);
+    font-size: 15px;
+    font-weight: 300;
+    max-width: 640px;
+  }
+
+  .hero-pills {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    font-size: 11px;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 4px 12px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  /* ── Section ── */
+  .arch-section {
+    margin-bottom: 72px;
+    scroll-margin-top: 24px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .section-num {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--accent), #2563eb);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 16px;
+    color: #fff;
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+
+  .section-header h2 {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--text);
+  }
+
+  .section-header .subtitle {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+
+  /* ── Diagram box ── */
+  .diagram-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+  }
+
+  .diagram-label {
+    font-size: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .diagram-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+
+  /* ── Explain box ── */
+  .explain {
+    font-size: 14px;
+    color: var(--text-mid);
+    line-height: 1.8;
+    margin-bottom: 24px;
+    padding: 20px 24px;
+    background: rgba(79,156,249,0.04);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+  }
+
+  /* ── Pros / Cons ── */
+  .pc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  @media (max-width: 768px) { .pc-grid { grid-template-columns: 1fr; } }
+
+  .pc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .pc-card h4 {
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pc-card.pros h4 { color: var(--best-c); }
+  .pc-card.cons h4 { color: #ef4444; }
+
+  .pc-card ul { list-style: none; }
+
+  .pc-card li {
+    font-size: 13px;
+    color: var(--text-mid);
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(31,45,69,0.5);
+    display: flex;
+    gap: 8px;
+    line-height: 1.5;
+  }
+
+  .pc-card li:last-child { border-bottom: none; }
+  .pc-card.pros li::before { content: '✓'; color: var(--best-c); flex-shrink: 0; margin-top: 1px; }
+  .pc-card.cons li::before { content: '✗'; color: #ef4444; flex-shrink: 0; margin-top: 1px; }
+
+  /* ── Best For chip ── */
+  .best-for {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0,212,170,0.08);
+    border: 1px solid rgba(0,212,170,0.2);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--best-c);
+    margin-bottom: 40px;
+  }
+
+  .best-for strong { font-weight: 600; }
+
+  /* ── Divider ── */
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 56px 0;
+  }
+
+  /* ── Decision Matrix ── */
+  .dm-section { scroll-margin-top: 24px; }
+
+  .dm-header {
+    margin-bottom: 28px;
+  }
+
+  .dm-header h2 {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .dm-header p {
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .matrix-wrap {
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    margin-bottom: 20px;
+  }
+
+  .matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 900px;
+  }
+
+  .matrix-table thead th {
+    padding: 14px 13px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.3px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .matrix-table thead th:first-child {
+    text-align: left;
+    color: var(--text-mid);
+    width: 230px;
+    border-right: 1px solid var(--border);
+  }
+
+  .col-h { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .col-icon { font-size: 18px; }
+  .col-lbl { font-size: 10px; color: var(--text-mid); font-weight: 600; }
+
+  .matrix-table tbody tr {
+    border-bottom: 1px solid rgba(31,45,69,0.5);
+    transition: background 0.1s;
+  }
+
+  .matrix-table tbody tr:last-child { border-bottom: none; }
+  .matrix-table tbody tr:hover { background: rgba(79,156,249,0.03); }
+
+  .matrix-table tbody td {
+    padding: 13px 13px;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .matrix-table tbody td:first-child {
+    text-align: left;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    border-right: 1px solid var(--border);
+  }
+
+  .crit-desc {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 300;
+    margin-top: 2px;
+  }
+
+  .sec-row td {
+    background: rgba(79,156,249,0.05);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding: 7px 13px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    white-space: nowrap;
+  }
+
+  .best { background: rgba(0,212,170,0.12); color: var(--best-c); border: 1px solid rgba(0,212,170,0.25); }
+  .good { background: rgba(79,156,249,0.12); color: var(--good-c); border: 1px solid rgba(79,156,249,0.2); }
+  .warn { background: rgba(249,115,22,0.12); color: var(--warn-c); border: 1px solid rgba(249,115,22,0.2); }
+  .none { background: rgba(71,85,105,0.15); color: var(--no-c); border: 1px solid rgba(71,85,105,0.2); }
+
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* ── Rec cards ── */
+  .rec-box {
+    margin-top: 24px;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent2);
+    border-radius: 8px;
+  }
+
+  .rec-box h3 {
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--accent2);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  .rec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+  }
+
+  .rec-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .rec-card .sc { font-size: 10px; color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; margin-bottom: 5px; }
+  .rec-card .sl { font-size: 13px; font-weight: 600; color: var(--accent); }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ──────────────────────────────────── -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">GCP Architecture</div>
+    <div class="title">Delta Ingestion<br>Compendium</div>
+  </div>
+
+  <div class="nav-section">Solutions</div>
+  <a class="nav-item" href="#opt1"><span class="icon">🗄️</span> Pure BQ SQL</a>
+  <a class="nav-item" href="#opt2"><span class="icon">🌊</span> Cloud Dataflow</a>
+  <a class="nav-item" href="#opt3"><span class="icon">🎼</span> Composer + BQ</a>
+  <a class="nav-item" href="#opt4"><span class="icon">⚡</span> Dataproc</a>
+  <a class="nav-item" href="#opt5"><span class="icon">📦</span> Cloud Run Jobs</a>
+  <a class="nav-item" href="#opt6"><span class="icon">🏛️</span> BQ + Dataplex</a>
+
+  <div class="nav-section">Reference</div>
+  <a class="nav-item" href="#hybrid"><span class="icon">🔀</span> Hybrid Architecture</a>
+  <a class="nav-item" href="#matrix"><span class="icon">📊</span> Decision Matrix</a>
+</nav>
+
+<!-- ── Main ─────────────────────────────────────── -->
+<main class="main">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-tag">Solution Architecture</div>
+    <h1>GCP Batch Delta Ingestion<br><span>Architecture Compendium</span></h1>
+    <p class="hero-desc">All viable GCP-native approaches for the Snapshot → Delta Detection → DQ → Selective Ingestion pattern, with wireframe diagrams, trade-offs, and decision guidance.</p>
+    <div class="hero-pills">
+      <span class="pill">BigQuery</span>
+      <span class="pill">Dataflow</span>
+      <span class="pill">Cloud Composer</span>
+      <span class="pill">Dataproc</span>
+      <span class="pill">Cloud Run Jobs</span>
+      <span class="pill">Dataplex</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       OPTION 1 — Pure BigQuery SQL
+  ══════════════════════════════════════════════════ -->
+  <section class="arch-section" id="opt1">
+    <div class="section-header">
+      <div class="section-num">01</div>
+      <div>
+        <h2>🗄️ Pure BigQuery SQL + Scheduled Queries</h2>
+        <div class="subtitle">Zero-infrastructure — all logic in SQL, scheduled natively in BQ</div>
+      </div>
+    </div>
+
+    <div class="diagram-box">
+      <div class="diagram-label">Architecture Wireframe</div>
+      <div class="mermaid">
+flowchart TD
+    A([🕐 Cloud Scheduler\nor Scheduled Query]) --> B
+    subgraph BQ["☁️ BigQuery Engine"]
+        B[["📋 Step 1\nFull Snapshot Scan\nWatermark Filter"]]
+        B --> C[["🔢 Step 2\nMD5 Hash Generation\nSpecific Cols or All Cols"]]
+        C --> D[["🔍 Step 3\nDelta Detection\nLEFT JOIN vs Target"]]
+        D --> E[["✅ Step 4\nDQ Rules\nCTE-based SQL Checks"]]
+        E --> F{DQ\nPassed?}
+        F -- Yes --> G[["💾 Step 5\nMERGE to Target Table"]]
+        F -- No --> H[["⚠️ Step 5b\nWrite to Error Table"]]
+        G --> I[["🔒 Step 6\nUpdate Process Control\nAdvance Watermark"]]
+        I --> J[["📝 Step 7\nInsert to Report Table"]]
+        H --> J
+    end
+    subgraph TABLES["📂 BQ Tables"]
+        SRC[(Source Table)]
+        TGT[(Target Table)]
+        ERR[(Error Table)]
+        CTL[(Process Control)]
+        RPT[(Report Table)]
+    end
+    B -.->|Read| SRC
+    G -.->|Write| TGT
+    H -.->|Write| ERR
+    I -.->|Update| CTL
+    J -.->|Insert| RPT
+    style BQ fill:#1a237e,color:#fff,stroke:#3949ab
+    style TABLES fill:#1b5e20,color:#fff,stroke:#388e3c
+    style F fill:#f57f17,color:#000,stroke:#f9a825
+      </div>
+    </div>
+
+    <p class="explain">All logic lives inside a single BigQuery query chain (CTEs or chained <code>CREATE TEMP TABLE</code> statements). The pipeline runs entirely within BQ — no Python, no clusters. Cloud Scheduler or BQ Scheduled Queries triggers execution. BQ does snapshot scan, hash generation, delta detection, DQ checks, MERGE, and writes all audit records in sequence.</p>
+
+    <div class="pc-grid">
+      <div class="pc-card pros">
+        <h4>✅ Pros</h4>
+        <ul>
+          <li>Zero infrastructure — no clusters, containers, or environments</li>
+          <li>Fastest time to production — days, not weeks</li>
+          <li>Native BQ performance — petabyte-scale columnar speed</li>
+          <li>Pay-per-query — no always-on cost</li>
+          <li>Full SQL auditability — every step in BQ Job History</li>
+          <li>Native scheduling — BQ Scheduled Queries has built-in retry</li>
+        </ul>
+      </div>
+      <div class="pc-card cons">
+        <h4>❌ Cons</h4>
+        <ul>
+          <li>DQ logic is SQL-only — no ML-based or cross-system checks</li>
+          <li>Dynamic SQL via EXECUTE IMMEDIATE gets messy at scale</li>
+          <li>No unit testing framework for SQL procedures</li>
+          <li>Limited error branching — IF/CASE chains replace proper exceptions</li>
+          <li>Hard to version-control — SP bodies not easily diffable</li>
+          <li>No row-level quarantine routing natively</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="best-for">📌 <strong>Best For:</strong> Source is BigQuery, DQ rules are SQL-expressible, team is SQL-first, fast delivery needed.
+    </div>
+  </section>
+
+  <hr class="section-divider">
+
+  <!-- ══════════════════════════════════════════════
+       OPTION 2 — Cloud Dataflow
+  ══════════════════════════════════════════════════ -->
+  <section class="arch-section" id="opt2">
+    <div class="section-header">
+      <div class="section-num" style="background: linear-gradient(135deg,#0277bd,#01579b)">02</div>
+      <div>
+        <h2>🌊 Cloud Dataflow (Apache Beam)</h2>
+        <div class="subtitle">Managed distributed processing — best for non-BQ sources and complex DQ</div>
+      </div>
+    </div>
+
+    <div class="diagram-box">
+      <div class="diagram-label">Architecture Wireframe</div>
+      <div class="mermaid">
+flowchart TD
+    TRIGGER([🕐 Cloud Scheduler\nor Composer]) --> JOB
+    subgraph JOB["🌊 Dataflow Flex Template Job"]
+        R[["📥 Source Reader\nBoundedSource\nBQ / GCS / Cloud SQL"]]
+        R --> SNAP[["📸 Snapshot Transform\nApply watermark filter"]]
+        SNAP --> SI[["🔑 Side Input Load\nTarget PKs + Hashes"]]
+        SI --> DELTA[["🔍 Delta Detection\nCoGroupByKey\nHash comparison"]]
+        DELTA --> DQ[["✅ DQ Transform\nCustom DoFn\nPer-row validation"]]
+        DQ --> SPLIT{Route\nOutput}
+        SPLIT --"PASS"--> MERGE[["💾 Target Writer\nBQ Storage Write API"]]
+        SPLIT --"QUARANTINE"--> Q[["🚫 Dead Letter Sink\nBQ Error Table"]]
+        SPLIT --"WARN"--> W[["📋 Warning Logger\nBQ Audit Table"]]
+        MERGE --> AUDIT[["📊 Audit Sink\nRun Summary"]]
+        Q --> AUDIT
+        W --> AUDIT
+    end
+    subgraph BQ_OUT["📂 BigQuery Sinks"]
+        TGT2[(Target Table)]
+        DL[(Dead Letter)]
+        AUD[(Audit Table)]
+        CTL2[(Process Control)]
+    end
+    MERGE -.->|Write| TGT2
+    Q -.->|Write| DL
+    AUDIT -.->|Write| AUD
+    AUDIT -.->|Update| CTL2
+    style JOB fill:#0d47a1,color:#fff,stroke:#1565c0
+    style BQ_OUT fill:#1b5e20,color:#fff,stroke:#388e3c
+    style SPLIT fill:#e65100,color:#fff,stroke:#f57c00
+      </div>
+    </div>
+
+    <p class="explain">A Flex Template (containerized Apache Beam job) triggered per schedule. Reads full snapshot using a BoundedSource, loads target hashes as a side input, routes records through a DQ DoFn using TaggedOutputs, then writes to appropriate sinks. All transforms are distributed across Dataflow workers with auto-scaling.</p>
+
+    <div class="pc-grid">
+      <div class="pc-card pros">
+        <h4>✅ Pros</h4>
+        <ul>
+          <li>Best for non-BQ sources — GCS, Cloud SQL, Pub/Sub, Spanner</li>
+          <li>True distributed processing — auto-scales to any volume</li>
+          <li>Rich DQ — custom Python/Java DoFn can call ML models or APIs</li>
+          <li>Native dead letter routing — TaggedOutputs split PASS/FAIL/WARN</li>
+          <li>Exactly-once delivery guarantees</li>
+          <li>Flex Templates are portable across projects</li>
+        </ul>
+      </div>
+      <div class="pc-card cons">
+        <h4>❌ Cons</h4>
+        <ul>
+          <li>Higher complexity — Beam programming model has a learning curve</li>
+          <li>Startup latency — job startup takes 2–5 minutes</li>
+          <li>Cost overhead — per-worker-hour even for short jobs</li>
+          <li>Overkill for BQ-to-BQ — native BQ SQL is faster and cheaper</li>
+          <li>Side input memory limits for large target hash sets</li>
+          <li>Template images need building and pushing to Artifact Registry</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="best-for">📌 <strong>Best For:</strong> Source is GCS/Cloud SQL/external API, dataset is TB+, DQ requires custom Python, multiple output sinks needed.
+    </div>
+  </section>
+
+  <hr class="section-divider">
+
+  <!-- ══════════════════════════════════════════════
+       OPTION 3 — Composer + BQ
+  ══════════════════════════════════════════════════ -->
+  <section class="arch-section" id="opt3">
+    <div class="section-header">
+      <div class="section-num" style="background: linear-gradient(135deg,#6a1b9a,#4a148c)">03</div>
+      <div>
+        <h2>🎼 Cloud Composer + BigQuery Operators</h2>
+        <div class="subtitle">Best orchestration — multi-step DAG with DQ gate, retries, SLA monitoring</div>
+      </div>
+    </div>
+
+    <div class="diagram-box">
+      <div class="diagram-label">Architecture Wireframe</div>
+      <div class="mermaid">
+flowchart TD
+    SCHED([🕐 Cloud Scheduler\nDAG Trigger]) --> DAG
+    subgraph DAG["🎼 Cloud Composer DAG"]
+        T1["⚙️ Task 1\nload_config\nPythonOperator"]
+        T1 --> T2["📸 Task 2\nextract_snapshot\nBigQueryInsertJobOperator"]
+        T2 --> T3["🔍 Task 3\ndetect_delta\nBigQueryInsertJobOperator"]
+        T3 --> T4["✅ Task 4\nrun_dq_checks\nBigQueryCheckOperator"]
+        T4 --> T5{BranchPython\nOperator\nDQ Gate}
+        T5 --"PASS"--> T6["💾 Task 5a\nmerge_to_target\nBigQueryInsertJobOperator"]
+        T5 --"FAIL"--> T7["🚫 Task 5b\nwrite_dq_errors"]
+        T6 --> T8["🔒 Task 6\nupdate_watermark\nPythonOperator"]
+        T7 --> T8
+        T8 --> T9["📊 Task 7\nwrite_run_report"]
+        T9 --> T10["📣 Task 8\nsend_alert\nCloud Monitoring"]
+    end
+    style DAG fill:#1a237e,color:#fff,stroke:#283593
+    style T5 fill:#e65100,color:#fff,stroke:#bf360c
+      </div>
+    </div>
+
+    <p class="explain">Each pipeline step is a separate Airflow task connected by dependencies. BranchPythonOperator acts as a DQ gate — halting or routing based on DQ results. BigQuery does all heavy SQL work; Composer provides orchestration, retry logic, SLA monitoring, and enterprise alerting. XCom passes run summaries between tasks.</p>
+
+    <div class="pc-grid">
+      <div class="pc-card pros">
+        <h4>✅ Pros</h4>
+        <ul>
+          <li>Best orchestration — full DAG control, retries, SLAs, branching</li>
+          <li>Native BQ integration — BigQueryOperator family</li>
+          <li>Great Expectations support via GreatExpectationsOperator</li>
+          <li>Visual DAG monitoring — Airflow UI with task-level status</li>
+          <li>XCom for inter-task data — run summaries passed cleanly</li>
+          <li>Enterprise alerting — PagerDuty, Slack, email built-in</li>
+        </ul>
+      </div>
+      <div class="pc-card cons">
+        <h4>❌ Cons</h4>
+        <ul>
+          <li>Composer environment cost — always-on ~$300–800/month</li>
+          <li>Parse-time overhead — complex DAGs slow Composer scheduler</li>
+          <li>Airflow complexity — steep learning curve for DAG patterns</li>
+          <li>Task overhead — each task has 30–60s startup cost</li>
+          <li>Not for real-time — batch scheduler only</li>
+          <li>Worker resource limits for PythonOperator tasks</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="best-for">📌 <strong>Best For:</strong> Multi-step pipeline with complex dependencies, enterprise monitoring needed, multiple teams sharing one orchestration platform.
+    </div>
+  </section>
+
+  <hr class="section-divider">
+
+  <!-- ══════════════════════════════════════════════
+       OPTION 4 — Dataproc
+  ══════════════════════════════════════════════════ -->
+  <section class="arch-section" id="opt4">
+    <div class="section-header">
+      <div class="section-num" style="background: linear-gradient(135deg,#f57f17,#e65100)">04</div>
+      <div>
+        <h2>⚡ Dataproc (PySpark / Serverless)</h2>
+        <div class="subtitle">Distributed Spark processing — best for GCS-sourced large-scale data</div>
+      </div>
+    </div>
+
+    <div class="diagram-box">
+      <div class="diagram-label">Architecture Wireframe</div>
+      <div class="mermaid">
+flowchart TD
+    TRIG([🕐 Composer Trigger\nor REST API]) --> SUBMIT
+    SUBMIT["📤 DataprocSubmitJobOperator"] --> DP
+    subgraph DP["⚡ Dataproc Serverless / Cluster"]
+        READ[["📥 PySpark Reader\nspark.read.bigquery()\nor spark.read.parquet(gcs)"]]
+        READ --> FILTER[["🔎 Watermark Filter\ndf.filter(col > last_wm)"]]
+        FILTER --> HASH[["🔢 Hash Generation\nwithColumn MD5 concat"]]
+        HASH --> JOIN[["🔍 Delta Detection\ndf.join on PKs\nhash mismatch filter"]]
+        JOIN --> DQ[["✅ DQ Checks\nPySpark validators\nor PyDeequ"]]
+        DQ --> ROUTE{Split\nDataFrame}
+        ROUTE --"Pass"--> WRITE[["💾 BQ Writer\nspark-bigquery-connector"]]
+        ROUTE --"Fail"--> ERRWRITE[["⚠️ Error Writer\nerror_df to BQ"]]
+        WRITE --> WM[["🔒 Watermark Update\nbq_client call"]]
+        ERRWRITE --> WM
+        WM --> AUD[["📊 Audit Record\nrun summary insert"]]
+    end
+    subgraph STORE["📂 Storage"]
+        GCS2[GCS Parquet/CSV/Avro]
+        BQ2[BigQuery Source/Target]
+    end
+    READ -.->|Read| GCS2
+    READ -.->|Read| BQ2
+    WRITE -.->|Write| BQ2
+    style DP fill:#0d47a1,color:#fff,stroke:#1565c0
+    style STORE fill:#1b5e20,color:#fff,stroke:#388e3c
+    style ROUTE fill:#e65100,color:#fff,stroke:#bf360c
+      </div>
+    </div>
+
+    <p class="explain">PySpark job runs on Dataproc Serverless (recommended) or a standard cluster. Source data from GCS or BQ is read into DataFrames. Delta detection uses a DataFrame join. DQ is applied as column-level filters or PyDeequ rules. Clean delta is written to BQ via the spark-bigquery-connector. Triggered by Composer or direct REST API call.</p>
+
+    <div class="pc-grid">
+      <div class="pc-card pros">
+        <h4>✅ Pros</h4>
+        <ul>
+          <li>Best for GCS-sourced large data — native Parquet/ORC/Avro reader</li>
+          <li>Full Spark ecosystem — PyDeequ, Spark ML, custom UDFs</li>
+          <li>Serverless Dataproc — no cluster management, pay-per-job</li>
+          <li>Rich DataFrame API — complex delta logic in clean Python</li>
+          <li>Multi-format support — Hive, Delta Lake, Iceberg natively</li>
+          <li>Familiar for data engineers — Spark is industry standard</li>
+        </ul>
+      </div>
+      <div class="pc-card cons">
+        <h4>❌ Cons</h4>
+        <ul>
+          <li>Startup time — even Serverless Spark takes 2–4 minutes</li>
+          <li>Expensive for small jobs — minimum billing unit</li>
+          <li>Cluster management for standard clusters — sizing, patching</li>
+          <li>BQ write bottleneck — spark-bigquery-connector slower than native</li>
+          <li>Memory-bound joins — large hash side loads can exceed worker memory</li>
+          <li>Overengineered for BQ-to-BQ pipelines</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="best-for">📌 <strong>Best For:</strong> Source data is on GCS (Parquet/CSV/Avro), very large dataset, Spark expertise available, Hive/Iceberg ecosystem integration needed.
+    </div>
+  </section>
+
+  <hr class="section-divider">
+
+  <!-- ══════════════════════════════════════════════
+       OPTION 5 — Cloud Run Jobs
+  ══════════════════════════════════════════════════ -->
+  <section class="arch-section" id="opt5">
+    <div class="section-header">
+      <div class="section-num" style="background: linear-gradient(135deg,#00695c,#004d40)">05</div>
+      <div>
+        <h2>📦 Cloud Run Jobs</h2>
+        <div class="subtitle">Containerised Python batch — low-cost, fast iteration, medium-scale</div>
+      </div>
+    </div>
+
+    <div class="diagram-box">
+      <div class="diagram-label">Architecture Wireframe</div>
+      <div class="mermaid">
+flowchart TD
+    SCHED2([🕐 Cloud Scheduler\nHTTP trigger]) --> CRJ
+    subgraph CRJ["📦 Cloud Run Job — Containerised Python"]
+        INIT[["🚀 Init\nLoad config from BQ\nGet watermark"]]
+        INIT --> LOCK[["🔒 Acquire Lock\nAtomic BQ MERGE"]]
+        LOCK --> SNAP2[["📸 Snapshot Query\nBQ client watermark filter"]]
+        SNAP2 --> DELTA2[["🔍 Delta Detection\nPolars or BQ query join"]]
+        DELTA2 --> DQ2[["✅ DQ Validation\nPandera / Great Expectations"]]
+        DQ2 --> BRANCH{DQ Result}
+        BRANCH --"REJECT"--> ERRLOG[["⚠️ Error Log\nWrite counts to BQ"]]
+        BRANCH --"Pass"--> WRITE2[["💾 BQ Write\nStorage Write API\nMERGE mode"]]
+        ERRLOG --> PC[["🔒 Update Process Control"]]
+        WRITE2 --> PC
+        PC --> RPT2[["📊 Audit Record\nInsert report table"]]
+        RPT2 --> CLEAN[["🧹 Cleanup\nRelease lock"]]
+    end
+    subgraph INFRA2["🏗️ Infrastructure"]
+        AR2[Artifact Registry\nDocker Image]
+        SEC[Secret Manager\nCredentials]
+    end
+    subgraph BQ3["📂 BigQuery"]
+        SRC4[(Source)]
+        TGT4[(Target)]
+        ERR4[(Error Table)]
+        CTL4[(Process Control)]
+    end
+    CRJ --- INFRA2
+    SNAP2 -.->|Query| SRC4
+    WRITE2 -.->|Write| TGT4
+    ERRLOG -.->|Insert| ERR4
+    PC -.->|Update| CTL4
+    style CRJ fill:#004d40,color:#fff,stroke:#00695c
+    style INFRA2 fill:#37474f,color:#fff,stroke:#546e7a
+    style BQ3 fill:#1b5e20,color:#fff,stroke:#388e3c
+    style BRANCH fill:#e65100,color:#fff,stroke:#bf360c
+      </div>
+    </div>
+
+    <p class="explain">A containerised Python application runs as a Cloud Run Job triggered by Cloud Scheduler. Uses the BQ Python client for queries and writes. DQ implemented via Pandera, Great Expectations, or custom rules in-memory. BQ Storage Write API handles efficient bulk writes. All state persisted to BQ between runs — fully stateless container.</p>
+
+    <div class="pc-grid">
+      <div class="pc-card pros">
+        <h4>✅ Pros</h4>
+        <ul>
+          <li>Low cost — pay only for execution time, no always-on infra</li>
+          <li>Simple deployment — one Docker image, one Scheduler job</li>
+          <li>Full Python flexibility — any library for DQ, logging, transforms</li>
+          <li>Fast cold start — seconds vs minutes for Dataflow/Dataproc</li>
+          <li>Easy local development — run container locally for E2E testing</li>
+          <li>Secret Manager integration — credentials cleanly injected</li>
+        </ul>
+      </div>
+      <div class="pc-card cons">
+        <h4>❌ Cons</h4>
+        <ul>
+          <li>Memory-bound — 32GB max; not for TB+ datasets</li>
+          <li>No distributed processing — single-container only</li>
+          <li>No built-in retry DAG — all-or-nothing retries</li>
+          <li>No visual pipeline view — no Airflow-style UI</li>
+          <li>Custom metrics needed — must push to Cloud Monitoring manually</li>
+          <li>Stateless per run — all state must persist to BQ/GCS</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="best-for">📌 <strong>Best For:</strong> Medium-scale BQ-to-BQ, Python-first team, low-cost requirement, fast iteration cycle.
+    </div>
+  </section>
+
+  <hr class="section-divider">
+
+  <!-- ══════════════════════════════════════════════
+       OPTION 6 — BQ + Dataplex
+  ══════════════════════════════════════════════════ -->
+  <section class="arch-section" id="opt6">
+    <div class="section-header">
+      <div class="section-num" style="background: linear-gradient(135deg,#4527a0,#311b92)">06</div>
+      <div>
+        <h2>🏛️ BQ + Dataplex DQ (Enterprise Governed)</h2>
+        <div class="subtitle">Full governance — lineage, DQ catalog, regulatory compliance built-in</div>
+      </div>
+    </div>
+
+    <div class="diagram-box">
+      <div class="diagram-label">Architecture Wireframe</div>
+      <div class="mermaid">
+flowchart TD
+    SCHED3([🕐 Cloud Composer\nDAG Trigger]) --> T_SNAP
+    T_SNAP["⚙️ Task 1\nextract_snapshot\nBigQueryInsertJobOperator"]
+    T_SNAP --> T_DELTA["⚙️ Task 2\ndetect_delta\nBigQueryInsertJobOperator"]
+    T_DELTA --> T_DQ["⚙️ Task 3\nTrigger Dataplex DQ Scan\nDataplexDataQualityJobTrigger"]
+    subgraph DATAPLEX["🔷 Cloud Dataplex DQ Engine"]
+        DQ_YAML["📋 DQ Rules YAML\nNull / Range / Regex\nUniqueness / Custom SQL"]
+        DQ_SCAN["🔍 Managed DQ Scan\nServerless execution"]
+        DQ_RESULT["📊 DQ Results\nRow-level pass/fail scores"]
+        DQ_YAML --> DQ_SCAN --> DQ_RESULT
+    end
+    T_DQ --> DATAPLEX
+    DATAPLEX --> T_CHECK["⚙️ Task 4\nPoll DQ Status\nPythonOperator"]
+    T_CHECK --> GATE{DQ Gate}
+    GATE --"PASS"--> T_MERGE["⚙️ Task 5a\nmerge_to_target\nBigQueryInsertJobOperator"]
+    GATE --"FAIL"--> T_HALT["⚙️ Task 5b\nhalt_and_alert\nCloud Monitoring"]
+    T_MERGE --> T_WM["⚙️ Task 6\nadvance_watermark"]
+    T_WM --> T_RPT["⚙️ Task 7\nwrite_report"]
+    subgraph CATALOG["🗂️ Dataplex Catalog"]
+        LINEAGE[Column-level Lineage]
+        DQ_HIST[DQ Score History]
+    end
+    DATAPLEX -.->|Publish| LINEAGE
+    DATAPLEX -.->|Update| DQ_HIST
+    style DATAPLEX fill:#311b92,color:#fff,stroke:#4527a0
+    style CATALOG fill:#1b5e20,color:#fff,stroke:#2e7d32
+    style GATE fill:#e65100,color:#fff,stroke:#bf360c
+      </div>
+    </div>
+
+    <p class="explain">Composer orchestrates staging and MERGE steps. Dataplex Data Quality acts as the managed DQ engine — YAML-configured rules run serverlessly against the delta staging table. Results are stored in BQ and surfaced in Dataplex Catalog with lineage tracking and historical DQ scores. Fully governed and auditable without writing DQ code.</p>
+
+    <div class="pc-grid">
+      <div class="pc-card pros">
+        <h4>✅ Pros</h4>
+        <ul>
+          <li>Enterprise governance built-in — lineage, catalog, DQ scores</li>
+          <li>Zero DQ code — rules defined in YAML, no implementation needed</li>
+          <li>Historical DQ trending — rule pass/fail scores over time</li>
+          <li>Column-level lineage tracking from source to target</li>
+          <li>Regulatory compliance ready — GDPR/CCPA audit trail</li>
+          <li>Managed scaling — Dataplex DQ scans are fully serverless</li>
+        </ul>
+      </div>
+      <div class="pc-card cons">
+        <h4>❌ Cons</h4>
+        <ul>
+          <li>Asynchronous DQ — Composer must poll; adds 5–15 min latency</li>
+          <li>Dataplex cost — per-scan pricing for frequent small runs</li>
+          <li>Limited custom DQ — complex cross-system checks require workarounds</li>
+          <li>Setup complexity — Dataplex zone/lake/catalog configuration</li>
+          <li>Scan coverage — Dataplex samples by default; full scan needs config</li>
+          <li>GCP lock-in — Dataplex DQ rules are not portable</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="best-for">📌 <strong>Best For:</strong> Enterprise data platform with compliance requirements, data catalog, lineage tracking, regulatory audit trail, and centralised DQ governance.
+    </div>
+  </section>
+
+  <hr class="section-divider">
+
+  <!-- ══════════════════════════════════════════════
+       HYBRID ARCHITECTURE
+  ══════════════════════════════════════════════════ -->
+  <section class="arch-section" id="hybrid">
+    <div class="section-header">
+      <div class="section-num" style="background: linear-gradient(135deg,#00897b,#00695c)">★</div>
+      <div>
+        <h2>🔀 Recommended Hybrid Architecture</h2>
+        <div class="subtitle">Composer orchestration + Python-generated BQ SQL + config-driven DQ framework</div>
+      </div>
+    </div>
+
+    <div class="diagram-box">
+      <div class="diagram-label">Full Enterprise Hybrid Wireframe</div>
+      <div class="mermaid">
+flowchart TD
+    SCHED4([🕐 Cloud Scheduler\n2:00 AM UTC Daily]) --> COMP
+    subgraph COMP["🎼 Cloud Composer — Orchestration Layer"]
+        D1["discover_tables\nPythonOperator\nLoad table_registry from BQ"]
+        D1 --> PARA
+        subgraph PARA["⚡ Parallel Tasks — max 5 concurrent"]
+            D2["extract_snapshot\nBigQueryInsertJobOperator\nWatermark-filtered scan"]
+            D3["detect_delta\nBigQueryInsertJobOperator\nDynamic hash SQL"]
+            D4["run_dq_rules\nPythonOperator\nConfig-driven BQ DQ"]
+            D5{DQ Gate\nBranchOperator}
+            D6["merge_to_target\nBigQueryInsertJobOperator"]
+            D7["quarantine_failed\nBigQueryInsertJobOperator"]
+            D2 --> D3 --> D4 --> D5
+            D5 --PASS--> D6
+            D5 --QUARANTINE--> D7
+            D7 --> D6
+        end
+        D6 --> D8["advance_watermark\nPythonOperator"]
+        D8 --> D9["write_audit_record\nBigQueryInsertJobOperator"]
+    end
+    D9 --> REPORT["write_dag_report\nTriggerRule.ALL_DONE"]
+    subgraph BQ_FW["📂 BQ framework_config Dataset"]
+        R1[(table_registry)]
+        R2[(dq_rules)]
+        R3[(process_control)]
+        R4[(run_audit)]
+        R5[(dq_error_log)]
+        R6[(quarantine_records)]
+    end
+    subgraph ALERT["🔔 Alerting"]
+        CM2[Cloud Monitoring]
+        SL2[Slack / PagerDuty]
+    end
+    D1 -.->|Read| R1
+    D4 -.->|Read rules| R2
+    D8 -.->|Update| R3
+    D9 -.->|Insert| R4
+    D4 -.->|Write errors| R5
+    D7 -.->|Write rows| R6
+    REPORT -.-> CM2
+    CM2 -.-> SL2
+    style COMP fill:#1a237e,color:#fff,stroke:#3949ab
+    style PARA fill:#0d47a1,color:#fff,stroke:#1565c0
+    style BQ_FW fill:#1b5e20,color:#fff,stroke:#388e3c
+    style ALERT fill:#4a148c,color:#fff,stroke:#6a1b9a
+    style D5 fill:#e65100,color:#fff,stroke:#bf360c
+      </div>
+    </div>
+
+    <p class="explain">The recommended pattern for most enterprise BQ-to-BQ pipelines. Composer dynamically discovers all active tables from <code>table_registry</code> and generates one TaskGroup per table. Python generates dynamic BQ SQL at runtime — no hardcoded column lists. DQ rules are loaded from <code>dq_rules</code> config table. Watermark is only advanced on success. All outcomes written to audit tables regardless of pass/fail.</p>
+  </section>
+
+  <hr class="section-divider">
+
+  <!-- ══════════════════════════════════════════════
+       DECISION MATRIX
+  ══════════════════════════════════════════════════ -->
+  <section class="dm-section" id="matrix">
+    <div class="dm-header">
+      <div class="hero-tag">Reference</div>
+      <h2>Solution Decision Matrix</h2>
+      <p>All criteria grouped by category — pick your winning option at a glance</p>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><span class="badge best">✦ Best</span> Ideal fit for this criteria</div>
+      <div class="legend-item"><span class="badge good">✓ Good</span> Supported with standard setup</div>
+      <div class="legend-item"><span class="badge warn">⚠ Possible</span> Works with trade-offs</div>
+      <div class="legend-item"><span class="badge none">✗ No</span> Not suited / major workaround</div>
+    </div>
+
+    <div class="matrix-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th>Criteria</th>
+            <th><div class="col-h"><span class="col-icon">🗄️</span><span class="col-lbl">Pure BQ SQL</span></div></th>
+            <th><div class="col-h"><span class="col-icon">🌊</span><span class="col-lbl">Dataflow</span></div></th>
+            <th><div class="col-h"><span class="col-icon">🎼</span><span class="col-lbl">Composer + BQ</span></div></th>
+            <th><div class="col-h"><span class="col-icon">⚡</span><span class="col-lbl">Dataproc</span></div></th>
+            <th><div class="col-h"><span class="col-icon">📦</span><span class="col-lbl">Cloud Run Jobs</span></div></th>
+            <th><div class="col-h"><span class="col-icon">🏛️</span><span class="col-lbl">BQ + Dataplex</span></div></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="sec-row"><td colspan="7">Source Compatibility</td></tr>
+          <tr>
+            <td>BigQuery source<span class="crit-desc">Native BQ-to-BQ pipeline</span></td>
+            <td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Possible</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td>
+          </tr>
+          <tr>
+            <td>GCS / External files<span class="crit-desc">CSV, Parquet, Avro on GCS</span></td>
+            <td><span class="badge none">✗ No</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Via BQ ext</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge none">✗ No</span></td>
+          </tr>
+          <tr>
+            <td>External DB / API<span class="crit-desc">Cloud SQL, Spanner, REST</span></td>
+            <td><span class="badge none">✗ No</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Via hooks</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge none">✗ No</span></td>
+          </tr>
+
+          <tr class="sec-row"><td colspan="7">Delta Detection</td></tr>
+          <tr>
+            <td>Key-based delta<span class="crit-desc">Insert / update by PK</span></td>
+            <td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td>
+          </tr>
+          <tr>
+            <td>Hash-based delta<span class="crit-desc">MD5 / row fingerprint</span></td>
+            <td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge good">✓ Good</span></td>
+          </tr>
+          <tr>
+            <td>Complex delta logic<span class="crit-desc">Multi-col, nested, fuzzy match</span></td>
+            <td><span class="badge warn">⚠ Limited</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge warn">⚠ Limited</span></td>
+          </tr>
+
+          <tr class="sec-row"><td colspan="7">Data Quality</td></tr>
+          <tr>
+            <td>Simple SQL DQ rules<span class="crit-desc">Null, range, uniqueness</span></td>
+            <td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Custom code</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Custom code</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td>
+          </tr>
+          <tr>
+            <td>Complex DQ logic<span class="crit-desc">Cross-field, referential, ML</span></td>
+            <td><span class="badge none">✗ No</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ GE support</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge warn">⚠ Limited</span></td>
+          </tr>
+          <tr>
+            <td>DQ audit trail<span class="crit-desc">Governed, catalogued results</span></td>
+            <td><span class="badge warn">⚠ Manual</span></td><td><span class="badge warn">⚠ Custom</span></td><td><span class="badge warn">⚠ Custom</span></td><td><span class="badge none">✗ No</span></td><td><span class="badge none">✗ No</span></td><td><span class="badge best">✦ Best</span></td>
+          </tr>
+          <tr>
+            <td>Dead letter / quarantine<span class="crit-desc">Route failed rows separately</span></td>
+            <td><span class="badge warn">⚠ Manual</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge good">✓ Good</span></td>
+          </tr>
+
+          <tr class="sec-row"><td colspan="7">Scale & Performance</td></tr>
+          <tr>
+            <td>Very large scale (TB+)<span class="crit-desc">Petabyte-range datasets</span></td>
+            <td><span class="badge best">✦ Best</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ BQ limited</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge none">✗ No</span></td><td><span class="badge best">✦ Best</span></td>
+          </tr>
+          <tr>
+            <td>Medium scale (GB range)<span class="crit-desc">Typical enterprise batch</span></td>
+            <td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Overscaled</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge best">✦ Best</span></td>
+          </tr>
+
+          <tr class="sec-row"><td colspan="7">Operations & Orchestration</td></tr>
+          <tr>
+            <td>Multi-step orchestration<span class="crit-desc">Complex DAG, dependencies</span></td>
+            <td><span class="badge none">✗ Limited</span></td><td><span class="badge warn">⚠ Linear only</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Needs wrapper</span></td><td><span class="badge warn">⚠ Basic</span></td><td><span class="badge good">✓ Good</span></td>
+          </tr>
+          <tr>
+            <td>Retry & SLA alerting<span class="crit-desc">Auto-retry, monitoring</span></td>
+            <td><span class="badge warn">⚠ Manual</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Partial</span></td><td><span class="badge good">✓ Good</span></td><td><span class="badge good">✓ Good</span></td>
+          </tr>
+          <tr>
+            <td>Data lineage tracking<span class="crit-desc">Column-level provenance</span></td>
+            <td><span class="badge none">✗ No</span></td><td><span class="badge warn">⚠ Manual</span></td><td><span class="badge warn">⚠ Manual</span></td><td><span class="badge none">✗ No</span></td><td><span class="badge none">✗ No</span></td><td><span class="badge best">✦ Best</span></td>
+          </tr>
+
+          <tr class="sec-row"><td colspan="7">Cost & Complexity</td></tr>
+          <tr>
+            <td>Operational overhead<span class="crit-desc">Infrastructure to manage</span></td>
+            <td><span class="badge best">✦ Minimal</span></td><td><span class="badge good">✓ Managed</span></td><td><span class="badge warn">⚠ Env cost</span></td><td><span class="badge none">✗ High</span></td><td><span class="badge best">✦ Minimal</span></td><td><span class="badge good">✓ Managed</span></td>
+          </tr>
+          <tr>
+            <td>Cost efficiency<span class="crit-desc">Pay-per-query vs always-on</span></td>
+            <td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Per-job cost</span></td><td><span class="badge warn">⚠ Always-on env</span></td><td><span class="badge none">✗ Cluster cost</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Per-scan</span></td>
+          </tr>
+          <tr>
+            <td>Implementation speed<span class="crit-desc">Time to production</span></td>
+            <td><span class="badge best">✦ Days</span></td><td><span class="badge warn">⚠ Weeks</span></td><td><span class="badge good">✓ 1–2 weeks</span></td><td><span class="badge warn">⚠ Weeks</span></td><td><span class="badge best">✦ Days</span></td><td><span class="badge good">✓ 1 week</span></td>
+          </tr>
+          <tr>
+            <td>Unit testability<span class="crit-desc">Framework-level test support</span></td>
+            <td><span class="badge none">✗ No</span></td><td><span class="badge good">✓ Beam testing</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge good">✓ PySpark</span></td><td><span class="badge best">✦ Best</span></td><td><span class="badge warn">⚠ Limited</span></td>
+          </tr>
+          <tr>
+            <td>Regulatory compliance<span class="crit-desc">GDPR, CCPA, audit trail</span></td>
+            <td><span class="badge none">✗ Manual</span></td><td><span class="badge warn">⚠ Custom</span></td><td><span class="badge warn">⚠ Custom</span></td><td><span class="badge none">✗ Manual</span></td><td><span class="badge none">✗ Manual</span></td><td><span class="badge best">✦ Built-in</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="rec-box">
+      <h3>⚡ Quick Recommendation by Scenario</h3>
+      <div class="rec-grid">
+        <div class="rec-card"><div class="sc">BQ-to-BQ · Simple DQ · Fast delivery</div><div class="sl">Pure BQ SQL + Scheduled Queries</div></div>
+        <div class="rec-card"><div class="sc">BQ-to-BQ · Enterprise audit + lineage</div><div class="sl">BQ + Dataplex DQ + Composer</div></div>
+        <div class="rec-card"><div class="sc">External source · Complex transforms · Scale</div><div class="sl">Dataflow + Composer orchestration</div></div>
+        <div class="rec-card"><div class="sc">GCS files · Large data · Spark ecosystem</div><div class="sl">Serverless Dataproc + Composer</div></div>
+        <div class="rec-card"><div class="sc">Medium scale · Custom logic · Low cost</div><div class="sl">Cloud Run Jobs + BQ Storage Write API</div></div>
+        <div class="rec-card"><div class="sc">Multi-step DAG · Mixed sources · SLA monitoring</div><div class="sl">Cloud Composer + BQ Operators + DQ Gate</div></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    GCP Solution Architecture · Snapshot → Delta → DQ → Ingest Pattern · All diagrams use Mermaid.js
+  </div>
+
+</main>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1a2235',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#4f9cf9',
+      lineColor: '#4f9cf9',
+      secondaryColor: '#111827',
+      tertiaryColor: '#0a0e1a',
+      background: '#0a0e1a',
+      mainBkg: '#1a2235',
+      nodeBorder: '#1f2d45',
+      clusterBkg: '#111827',
+      titleColor: '#e2e8f0',
+      edgeLabelBackground: '#1a2235',
+      fontFamily: 'IBM Plex Mono, monospace'
+    }
+  });
+
+  // Highlight active nav item on scroll
+  const sections = document.querySelectorAll('[id]');
+  const navItems = document.querySelectorAll('.nav-item');
+  window.addEventListener('scroll', () => {
+    let cur = '';
+    sections.forEach(s => { if (window.scrollY >= s.offsetTop - 60) cur = s.id; });
+    navItems.forEach(n => {
+      n.classList.toggle('active', n.getAttribute('href') === '#' + cur);
+    });
+  });
+</script>
+</body>
+</html>

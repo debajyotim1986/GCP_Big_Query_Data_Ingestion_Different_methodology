@@ -1,0 +1,67 @@
+[project]
+name            = "bq-delta-framework"
+version         = "1.0.0"
+description     = "Production-grade BigQuery delta ingestion framework with Cloud Composer orchestration"
+readme          = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    # Framework core — always installed
+    "google-cloud-bigquery>=3.14.0",
+    "google-auth>=2.27.0",
+    "apache-airflow>=2.8.0",
+]
+
+[dependency-groups]
+
+# Installed in Docker image (uv sync --frozen --no-group dev)
+dashboard = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+]
+
+# NOT installed in Docker image (excluded via --no-group dev)
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.26.0",         # FastAPI TestClient
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+]
+
+[tool.uv]
+dev-dependencies = []        # managed via [dependency-groups] above
+
+[build-system]
+requires      = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["framework", "dashboard"]
+
+# ── Ruff linter ───────────────────────────────────────────────────────────────
+
+[tool.ruff]
+line-length    = 100
+target-version = "py311"
+select         = ["E", "F", "W", "I", "N", "UP", "B"]
+ignore         = ["B008", "N805"]
+
+[tool.ruff.isort]
+known-first-party = ["framework", "dashboard"]
+
+# ── Mypy ─────────────────────────────────────────────────────────────────────
+
+[tool.mypy]
+python_version         = "3.11"
+strict                 = false
+ignore_missing_imports = true
+
+# ── Pytest ────────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+asyncio_mode  = "auto"
+testpaths     = ["tests"]
+log_cli       = true
+log_cli_level = "INFO"

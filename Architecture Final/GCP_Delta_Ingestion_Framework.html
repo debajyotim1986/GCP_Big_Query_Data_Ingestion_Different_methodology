@@ -1,0 +1,2094 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GCP Delta Ingestion Framework — Architecture Comparison Report</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Mermaid -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+<style>
+/* ─── Reset & Base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:        #080C14;
+  --surface:   #0E1420;
+  --card:      #131929;
+  --border:    #1E2A3A;
+  --text:      #C8D8E8;
+  --text-dim:  #6B7FA0;
+  --text-code: #7DD3FC;
+
+  /* Approach accent colours */
+  --a1: #4285F4;   /* BQ Native — Google Blue */
+  --a2: #EA4335;   /* Dataflow  — Google Red  */
+  --a3: #017CEE;   /* Composer  — Airflow Blue */
+  --a4: #F9AB00;   /* Functions — GCP Amber   */
+  --a5: #E25A1C;   /* Dataproc  — Spark Orange */
+  --a6: #8B5CF6;   /* Full Stack — Dataplex Purple */
+
+  /* Service brand colours */
+  --bq:       #4285F4;
+  --gcs:      #0097A7;
+  --composer: #017CEE;
+  --dataflow: #EA4335;
+  --dataproc: #E91E63;
+  --pubsub:   #FF6F00;
+  --mon:      #00897B;
+  --log:      #558B2F;
+  --secret:   #6200EE;
+  --dataplex: #00BCD4;
+  --looker:   #1A73E8;
+  --tasks:    #795548;
+  --eventarc: #E65100;
+  --dbt:      #FF694B;
+  --spark:    #E25A1C;
+  --beam:     #E6522C;
+  --sched:    #34A853;
+  --func:     #F9AB00;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  line-height: 1.65;
+  font-size: 15px;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────────*/
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #2A3A5A; border-radius: 3px; }
+
+/* ─── Navigation ─────────────────────────────────────────────────────────── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(8,12,20,0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  overflow-x: auto;
+}
+nav a {
+  text-decoration: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 14px 14px;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  text-transform: uppercase;
+}
+nav a:hover { color: var(--text); border-bottom-color: var(--text-dim); }
+nav a.a1 { color: var(--a1); } nav a.a1:hover { border-bottom-color: var(--a1); }
+nav a.a2 { color: var(--a2); } nav a.a2:hover { border-bottom-color: var(--a2); }
+nav a.a3 { color: var(--a3); } nav a.a3:hover { border-bottom-color: var(--a3); }
+nav a.a4 { color: var(--a4); } nav a.a4:hover { border-bottom-color: var(--a4); }
+nav a.a5 { color: var(--a5); } nav a.a5:hover { border-bottom-color: var(--a5); }
+nav a.a6 { color: var(--a6); } nav a.a6:hover { border-bottom-color: var(--a6); }
+nav a.cmp { color: #34A853; } nav a.cmp:hover { border-bottom-color: #34A853; }
+nav .nav-logo { font-weight: 800; font-size: 13px; color: white; margin-right: 12px; white-space: nowrap; }
+nav .nav-div { width: 1px; height: 20px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+
+/* ─── Hero ───────────────────────────────────────────────────────────────── */
+.hero {
+  background: linear-gradient(135deg, #080C14 0%, #0D1B30 40%, #0A1520 70%, #080C14 100%);
+  padding: 80px 60px 60px;
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -120px; left: -120px;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(66,133,244,0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -80px; right: -80px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(139,92,246,0.10) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--a1);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hero-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 28px; height: 2px;
+  background: var(--a1);
+}
+.hero h1 {
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: #fff;
+  margin-bottom: 20px;
+  max-width: 750px;
+}
+.hero h1 span { background: linear-gradient(90deg, #4285F4, #8B5CF6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.hero-meta {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 40px;
+}
+.hero-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.hero-meta-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--a1); }
+
+/* ─── Content Container ─────────────────────────────────────────────────── */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 40px; }
+section { padding: 60px 0; border-bottom: 1px solid var(--border); }
+
+/* ─── Section Headings ───────────────────────────────────────────────────── */
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+h2 { font-size: 26px; font-weight: 800; color: #fff; margin-bottom: 24px; }
+h3 { font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 16px; margin-top: 36px; }
+h4 { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px; margin-top: 28px; }
+
+/* ─── Approach Section Headers ───────────────────────────────────────────── */
+.approach-section { padding: 0; border-bottom: 2px solid var(--border); }
+.approach-header {
+  padding: 50px 60px 40px;
+  position: relative;
+  overflow: hidden;
+}
+.approach-header::after {
+  content: attr(data-num);
+  position: absolute;
+  right: 40px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 120px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.03);
+  line-height: 1;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.approach-header.a1 { background: linear-gradient(135deg, #0A1525 0%, #0D1E3D 100%); border-left: 4px solid var(--a1); }
+.approach-header.a2 { background: linear-gradient(135deg, #1A0A08 0%, #2D1210 100%); border-left: 4px solid var(--a2); }
+.approach-header.a3 { background: linear-gradient(135deg, #051628 0%, #0A2040 100%); border-left: 4px solid var(--a3); }
+.approach-header.a4 { background: linear-gradient(135deg, #1A1200 0%, #2D2100 100%); border-left: 4px solid var(--a4); }
+.approach-header.a5 { background: linear-gradient(135deg, #1A0D00 0%, #2D1800 100%); border-left: 4px solid var(--a5); }
+.approach-header.a6 { background: linear-gradient(135deg, #0E0820 0%, #1A1035 100%); border-left: 4px solid var(--a6); }
+
+.approach-num {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  opacity: 0.7;
+}
+.a1 .approach-num { color: var(--a1); }
+.a2 .approach-num { color: var(--a2); }
+.a3 .approach-num { color: var(--a3); }
+.a4 .approach-num { color: var(--a4); }
+.a5 .approach-num { color: var(--a5); }
+.a6 .approach-num { color: var(--a6); }
+
+.approach-title { font-size: clamp(20px, 3vw, 30px); font-weight: 800; color: #fff; margin-bottom: 8px; }
+.approach-subtitle { font-size: 14px; color: var(--text-dim); margin-bottom: 28px; max-width: 600px; }
+
+/* ─── GCP Service Logo Tiles ─────────────────────────────────────────────── */
+.service-logos { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.svc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  transition: all 0.2s;
+  cursor: default;
+}
+.svc:hover { background: rgba(255,255,255,0.09); transform: translateY(-1px); }
+.svc-icon {
+  width: 24px; height: 24px;
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.svc-icon img { width: 18px; height: 18px; object-fit: contain; }
+.ic-bq      { background: var(--bq); }
+.ic-gcs     { background: var(--gcs); }
+.ic-composer{ background: var(--composer); }
+.ic-dataflow{ background: var(--dataflow); }
+.ic-dataproc{ background: var(--dataproc); }
+.ic-pubsub  { background: var(--pubsub); }
+.ic-mon     { background: var(--mon); }
+.ic-log     { background: var(--log); }
+.ic-secret  { background: var(--secret); }
+.ic-dataplex{ background: var(--dataplex); }
+.ic-looker  { background: var(--looker); }
+.ic-tasks   { background: var(--tasks); }
+.ic-eventarc{ background: var(--eventarc); }
+.ic-dbt     { background: var(--dbt); }
+.ic-spark   { background: var(--spark); }
+.ic-beam    { background: var(--beam); }
+.ic-sched   { background: var(--sched); }
+.ic-func    { background: var(--func); }
+
+/* ─── Approach Body Content ─────────────────────────────────────────────── */
+.approach-body { padding: 0 60px 60px; background: var(--bg); }
+
+/* ─── Mermaid Wrapper ────────────────────────────────────────────────────── */
+.diagram-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px 24px;
+  margin: 24px 0;
+  overflow-x: auto;
+}
+
+.diagram-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-label::before {
+  content: '';
+  display: inline-block;
+  width: 16px; height: 2px;
+  background: var(--text-dim);
+}
+
+/* ─── Design Intent Box ──────────────────────────────────────────────────── */
+.intent-box {
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 28px 0;
+  border-left: 3px solid;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.intent-box.a1 { background: rgba(66,133,244,0.07); border-color: var(--a1); }
+.intent-box.a2 { background: rgba(234,67,53,0.07);  border-color: var(--a2); }
+.intent-box.a3 { background: rgba(1,124,238,0.07);  border-color: var(--a3); }
+.intent-box.a4 { background: rgba(249,171,0,0.07);  border-color: var(--a4); }
+.intent-box.a5 { background: rgba(226,90,28,0.07);  border-color: var(--a5); }
+.intent-box.a6 { background: rgba(139,92,246,0.07); border-color: var(--a6); }
+
+/* ─── Tables ─────────────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; margin: 20px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+thead th {
+  background: var(--surface);
+  color: var(--text-dim);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+tbody tr { border-bottom: 1px solid rgba(30,42,58,0.6); transition: background 0.15s; }
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+tbody td { padding: 11px 16px; vertical-align: top; }
+tbody td:first-child { font-weight: 600; }
+td code, th code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  background: rgba(125,211,252,0.1);
+  color: var(--text-code);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* ─── Pros/Cons Table ────────────────────────────────────────────────────── */
+.pros-cons-table tbody tr.pro td { background: rgba(52,168,83,0.05); }
+.pros-cons-table tbody tr.pro:hover td { background: rgba(52,168,83,0.09); }
+.pros-cons-table tbody tr.con td { background: rgba(234,67,53,0.05); }
+.pros-cons-table tbody tr.con:hover td { background: rgba(234,67,53,0.09); }
+.pro-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(52,168,83,0.15);
+  color: #34A853;
+  border: 1px solid rgba(52,168,83,0.3);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px; font-weight: 700;
+}
+.con-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(234,67,53,0.15);
+  color: #EA4335;
+  border: 1px solid rgba(234,67,53,0.3);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px; font-weight: 700;
+}
+
+/* ─── Comparison Matrix ──────────────────────────────────────────────────── */
+.matrix-table thead th { text-align: center; }
+.matrix-table thead th:first-child { text-align: left; }
+.matrix-table tbody td { text-align: center; }
+.matrix-table tbody td:first-child { text-align: left; font-weight: 600; }
+.matrix-table .highlight { background: rgba(139,92,246,0.08); }
+.cell-yes { color: #34A853; font-weight: 700; }
+.cell-no  { color: #EA4335; opacity: 0.7; }
+.cell-warn{ color: #F9AB00; }
+
+/* ─── Quick Nav Cards ────────────────────────────────────────────────────── */
+.nav-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin: 24px 0; }
+.nav-card {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 20px 22px;
+  background: var(--card);
+  text-decoration: none;
+  display: block;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.nav-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.nav-card.a1::before { background: var(--a1); }
+.nav-card.a2::before { background: var(--a2); }
+.nav-card.a3::before { background: var(--a3); }
+.nav-card.a4::before { background: var(--a4); }
+.nav-card.a5::before { background: var(--a5); }
+.nav-card.a6::before { background: var(--a6); }
+.nav-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-2px); background: #151E30; }
+.nav-card-num { font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px; }
+.nav-card.a1 .nav-card-num { color: var(--a1); }
+.nav-card.a2 .nav-card-num { color: var(--a2); }
+.nav-card.a3 .nav-card-num { color: var(--a3); }
+.nav-card.a4 .nav-card-num { color: var(--a4); }
+.nav-card.a5 .nav-card-num { color: var(--a5); }
+.nav-card.a6 .nav-card-num { color: var(--a6); }
+.nav-card-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+.nav-card-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.complexity-pill {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.c-low  { background: rgba(52,168,83,0.15);  color: #34A853; }
+.c-med  { background: rgba(249,171,0,0.15);  color: #F9AB00; }
+.c-high { background: rgba(234,67,53,0.15);  color: #EA4335; }
+
+/* ─── Problem Statement ─────────────────────────────────────────────────── */
+.problem-steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 24px; }
+.problem-step {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  position: relative;
+}
+.problem-step-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--a1), var(--a6));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 10px;
+}
+.problem-step p { font-size: 13px; color: var(--text); line-height: 1.5; }
+
+/* ─── Delta Detection Techniques ─────────────────────────────────────────── */
+.techniques-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin: 24px 0; }
+.technique-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  transition: border-color 0.2s;
+}
+.technique-card:hover { border-color: var(--a1); }
+.technique-icon { font-size: 24px; margin-bottom: 10px; }
+.technique-name { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+.technique-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-code);
+  background: rgba(125,211,252,0.05);
+  padding: 8px;
+  border-radius: 6px;
+  line-height: 1.6;
+}
+
+/* ─── Image ──────────────────────────────────────────────────────────────── */
+.arch-image-wrap {
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin: 28px 0;
+  background: #fff;
+}
+.arch-image-wrap img { width: 100%; display: block; }
+.image-caption {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 14px 20px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ─── Legend Table ───────────────────────────────────────────────────────── */
+.legend-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 20px 0; }
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.legend-dot { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+/* ─── Final Recommendation Box ───────────────────────────────────────────── */
+.rec-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 36px;
+  margin: 24px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* ─── Comparison Section ─────────────────────────────────────────────────── */
+.comparison-hero {
+  background: linear-gradient(135deg, #0A1020 0%, #111827 100%);
+  border-left: 4px solid #34A853;
+  padding: 40px 60px 32px;
+}
+.comparison-body { padding: 0 60px 60px; }
+
+/* ─── Footer ─────────────────────────────────────────────────────────────── */
+footer {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-dim);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+footer strong { color: var(--text); }
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .approach-header, .approach-body, .comparison-hero, .comparison-body { padding-left: 24px; padding-right: 24px; }
+  .hero { padding: 50px 24px 40px; }
+  .container { padding: 0 24px; }
+  .approach-header::after { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ─── Navigation ─────────────────────────────────────────────────────────── -->
+<nav>
+  <span class="nav-logo">🔄 GCP Delta Framework</span>
+  <div class="nav-div"></div>
+  <a href="#approach-1" class="a1">01 · BQ Native SQL</a>
+  <a href="#approach-2" class="a2">02 · Dataflow</a>
+  <a href="#approach-3" class="a3">03 · Composer</a>
+  <a href="#approach-4" class="a4">04 · Cloud Functions</a>
+  <a href="#approach-5" class="a5">05 · Dataproc</a>
+  <a href="#approach-6" class="a6">06 · Full Stack + Dataplex</a>
+  <div class="nav-div"></div>
+  <a href="#comparison" class="cmp">📊 Comparison</a>
+</nav>
+
+<!-- ─── Hero ───────────────────────────────────────────────────────────────── -->
+<div class="hero">
+  <div class="hero-eyebrow">Architecture Comparison Report</div>
+  <h1>GCP <span>Delta Ingestion</span> Framework</h1>
+  <div class="hero-meta">
+    <div class="hero-meta-item"><div class="dot"></div> Raw → Staging → Curation Pipeline</div>
+    <div class="hero-meta-item"><div class="dot" style="background:var(--a6)"></div> BigQuery · Google Cloud Platform</div>
+    <div class="hero-meta-item"><div class="dot" style="background:#34A853"></div> March 2026</div>
+    <div class="hero-meta-item"><div class="dot" style="background:var(--a5)"></div> 6 Architecture Approaches</div>
+  </div>
+</div>
+
+<!-- ─── Problem Statement ─────────────────────────────────────────────────── -->
+<section id="problem">
+  <div class="container">
+    <div class="section-label">📌 Problem Statement</div>
+    <h2>What This Framework Must Do</h2>
+    <div class="problem-steps">
+      <div class="problem-step"><div class="problem-step-num">1</div><p><strong>Detect</strong> delta records between Raw &amp; Staging layer (same schema, both in BigQuery)</p></div>
+      <div class="problem-step"><div class="problem-step-num">2</div><p><strong>Ingest</strong> delta records into Staging table as a new partition</p></div>
+      <div class="problem-step"><div class="problem-step-num">3</div><p><strong>Flag</strong> the new partition as <code>UNPROCESSED</code> in a metadata table</p></div>
+      <div class="problem-step"><div class="problem-step-num">4</div><p><strong>Pick up</strong> unprocessed partitions and apply transformation logic</p></div>
+      <div class="problem-step"><div class="problem-step-num">5</div><p><strong>Load</strong> transformed data into the Curation layer</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Quick Navigation ───────────────────────────────────────────────────── -->
+<section id="quick-nav">
+  <div class="container">
+    <div class="section-label">🗂️ Quick Navigation</div>
+    <h2>Choose Your Architecture</h2>
+    <div class="nav-cards">
+      <a href="#approach-1" class="nav-card a1">
+        <div class="nav-card-num">Approach 01</div>
+        <div class="nav-card-title">BigQuery Native SQL</div>
+        <div class="nav-card-desc">Cloud Scheduler · BQ Scheduled Queries · dbt</div>
+        <div class="complexity-pill c-low">🟢 Low Complexity</div>
+      </a>
+      <a href="#approach-2" class="nav-card a2">
+        <div class="nav-card-num">Approach 02</div>
+        <div class="nav-card-title">Apache Beam / Dataflow</div>
+        <div class="nav-card-desc">Streaming CDC · any scale · exactly-once</div>
+        <div class="complexity-pill c-med">🟡 Medium Complexity</div>
+      </a>
+      <a href="#approach-3" class="nav-card a3">
+        <div class="nav-card-num">Approach 03</div>
+        <div class="nav-card-title">Cloud Composer</div>
+        <div class="nav-card-desc">Managed Airflow · enterprise orchestration</div>
+        <div class="complexity-pill c-med">🟡 Medium Complexity</div>
+      </a>
+      <a href="#approach-4" class="nav-card a4">
+        <div class="nav-card-num">Approach 04</div>
+        <div class="nav-card-title">Cloud Functions + BigQuery</div>
+        <div class="nav-card-desc">Serverless · event-driven · file arrival trigger</div>
+        <div class="complexity-pill c-low">🟢 Low Complexity</div>
+      </a>
+      <a href="#approach-5" class="nav-card a5">
+        <div class="nav-card-num">Approach 05</div>
+        <div class="nav-card-title">Dataproc (Apache Spark)</div>
+        <div class="nav-card-desc">&gt; 500 GB batch · PySpark teams · Left Anti Join</div>
+        <div class="complexity-pill c-high">🔴 High Complexity</div>
+      </a>
+      <a href="#approach-6" class="nav-card a6">
+        <div class="nav-card-num">Approach 06 ⭐ NEW</div>
+        <div class="nav-card-title">Composer + Ephemeral Dataproc + Dataplex</div>
+        <div class="nav-card-desc">Month-end · zero idle cost · full governance + dashboard</div>
+        <div class="complexity-pill c-med">🟡 Medium Complexity</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Delta Detection Techniques ─────────────────────────────────────────── -->
+<section id="delta-detection">
+  <div class="container">
+    <div class="section-label">🔑 Core Techniques</div>
+    <h2>Delta Detection Strategies</h2>
+    <p style="color:var(--text-dim); margin-bottom:28px; max-width:680px;">These fundamental strategies are used across all 6 architectures. Choose based on your data volume, schema stability, and latency requirements.</p>
+
+    <div class="techniques-grid">
+      <div class="technique-card">
+        <div class="technique-icon">🔎</div>
+        <div class="technique-name">EXCEPT ALL</div>
+        <div class="technique-code">SELECT * FROM raw
+EXCEPT ALL
+SELECT * FROM staging</div>
+      </div>
+      <div class="technique-card">
+        <div class="technique-icon">#️⃣</div>
+        <div class="technique-name">SHA256 Hash</div>
+        <div class="technique-code">TO_HEX(SHA256(
+  CONCAT(col1,col2,...)
+))</div>
+      </div>
+      <div class="technique-card">
+        <div class="technique-icon">🔗</div>
+        <div class="technique-name">PK + Hash Join</div>
+        <div class="technique-code">LEFT ANTI JOIN on PK
++ hash mismatch check</div>
+      </div>
+      <div class="technique-card">
+        <div class="technique-icon">⏱️</div>
+        <div class="technique-name">Watermark</div>
+        <div class="technique-code">WHERE updated_at >
+  MAX(staging.updated_at)</div>
+      </div>
+      <div class="technique-card">
+        <div class="technique-icon">📊</div>
+        <div class="technique-name">Row Count + Checksum</div>
+        <div class="technique-code">COUNT(*) + SUM(hash)
+per partition</div>
+      </div>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-label">Delta Detection Flowchart</div>
+      <pre class="mermaid">
+flowchart TD
+    Start([🔍 Delta Detection Start]) --> Q1{Detection Strategy?}
+    Q1 -->|Full Row Match| T1[EXCEPT ALL]
+    Q1 -->|Column Hash| T2[SHA256 Hash Comparison]
+    Q1 -->|PK + Hash| T3[Primary Key + Row Hash Join]
+    Q1 -->|Timestamp| T4[Watermark / High-Water Mark]
+    Q1 -->|Quick Check| T5[Row Count + Checksum]
+    T1 --> R1{New/Changed Rows Found?}
+    T2 --> R1
+    T3 --> R1
+    T4 --> R1
+    T5 --> R1
+    R1 -->|Yes| W1[Write to Staging new partition]
+    R1 -->|No| W2[Log: No delta found]
+    W1 --> M1[Update Metadata status = UNPROCESSED]
+    W2 --> M2[Update Metadata status = NO_DELTA]
+    M1 --> End([✅ Delta Detection Complete])
+    M2 --> End
+      </pre>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-label">SHA256 Hash Deep Dive</div>
+      <pre class="mermaid">
+flowchart LR
+    subgraph RAW["📦 Raw Layer"]
+        R1["id=1  col1=foo"]
+        R2["id=2  col1=baz"]
+        R3["id=3  col1=NEW"]
+    end
+    subgraph HASH_RAW["#️⃣ Hash Raw"]
+        H1["id=1 → a1b2c3"]
+        H2["id=2 → d4e5f6"]
+        H3["id=3 → g7h8i9"]
+    end
+    subgraph STAGING["📋 Staging Layer"]
+        S1["id=1  col1=foo"]
+        S2["id=2  col1=OLD"]
+    end
+    subgraph HASH_STG["#️⃣ Hash Staging"]
+        HS1["id=1 → a1b2c3"]
+        HS2["id=2 → XXXXXX"]
+    end
+    subgraph COMPARE["🔎 LEFT ANTI JOIN"]
+        C1["id=1 → MATCH ✅"]
+        C2["id=2 → CHANGED ❌"]
+        C3["id=3 → NEW ROW ❌"]
+    end
+    subgraph OUTPUT["⚡ Delta Records"]
+        O1["id=2  changed"]
+        O2["id=3  new row"]
+    end
+    RAW --> HASH_RAW
+    STAGING --> HASH_STG
+    HASH_RAW --> COMPARE
+    HASH_STG --> COMPARE
+    COMPARE --> OUTPUT
+      </pre>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- APPROACH 1 -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="approach-section" id="approach-1">
+  <div class="approach-header a1" data-num="01">
+    <div class="approach-num">Approach 01 — Best for &lt; 100 GB batch loads</div>
+    <div class="approach-title">BigQuery Native SQL</div>
+    <div class="approach-subtitle">Pure SQL approach using BQ Scheduled Queries or Stored Procedures. Zero infrastructure, lowest cost, dbt-compatible.</div>
+    <div class="service-logos">
+      <div class="svc"><div class="svc-icon ic-bq"><img src="https://api.iconify.design/logos:google-bigquery.svg" alt="BQ"/></div>BigQuery</div>
+      <div class="svc"><div class="svc-icon ic-sched">⏰</div>Cloud Scheduler</div>
+      <div class="svc"><div class="svc-icon ic-gcs">🗄️</div>Cloud Storage</div>
+      <div class="svc"><div class="svc-icon ic-log">📋</div>Cloud Logging</div>
+      <div class="svc"><div class="svc-icon ic-dbt"><img src="https://api.iconify.design/logos:dbt.svg" alt="dbt"/></div>dbt</div>
+    </div>
+  </div>
+  <div class="approach-body">
+    <div class="diagram-wrap">
+      <div class="diagram-label">📐 High-Level Architecture</div>
+      <pre class="mermaid">
+flowchart TD
+    CS["⏰ Cloud Scheduler"]
+    BSQ["📋 BQ Scheduled Query"]
+    RAW[("📦 Raw Table")]
+    STG[("📋 Staging Table")]
+    META[("🏷️ Metadata Table")]
+    CUR[("🏛️ Curation Table")]
+    DBT["🔧 dbt Transform"]
+    LOG["📊 Audit Log"]
+
+    CS -->|"cron trigger"| BSQ
+    BSQ -->|"read + hash"| RAW
+    BSQ -->|"read hashes"| STG
+    BSQ -->|"INSERT delta partition"| STG
+    STG -->|"flag UNPROCESSED"| META
+    META -->|"poll unprocessed"| BSQ
+    BSQ -->|"trigger"| DBT
+    DBT -->|"MERGE to curation"| CUR
+    DBT -->|"mark PROCESSED"| META
+    BSQ -->|"write stats"| LOG
+      </pre>
+    </div>
+    <div class="diagram-wrap">
+      <div class="diagram-label">🔄 Delta Detection &amp; Pipeline Flow</div>
+      <pre class="mermaid">
+flowchart TD
+    A([" ⏰ Cloud Scheduler Trigger"]) --> B
+    B["🔍 Delta Detection SQL\nSHA256 hash compare\nRaw vs Staging"]
+    B --> C{Delta Rows Found?}
+    C -->|Yes| D["📥 INSERT Staging Partition\ningestion_date = today"]
+    C -->|No| E["📝 Log: No Delta\nstatus = NO_DELTA"]
+    D --> F["🏷️ Update Metadata\nstatus = UNPROCESSED"]
+    F --> G["⏳ Poll Metadata\nfor UNPROCESSED partitions"]
+    G --> H{Partition Found?}
+    H -->|Yes| I["🔧 Run dbt Transform\nstaging → curation"]
+    H -->|No| J([" ✅ Pipeline Complete"])
+    I --> K["📤 MERGE into Curation"]
+    K --> L["✅ Mark PROCESSED"]
+    L --> M["📊 Write Audit Log"]
+    M --> G
+      </pre>
+    </div>
+
+    <h3>🧩 Component List</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Component</th><th>GCP Service</th><th>Purpose</th><th>Config Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Raw Table</td><td>BigQuery</td><td>Source of truth, append-only</td><td>Partitioned by <code>ingestion_date</code>, clustered by PK</td></tr>
+          <tr><td>Staging Table</td><td>BigQuery</td><td>Delta-detected records, pre-transform</td><td>Partitioned by <code>ingestion_date</code>, same schema as Raw</td></tr>
+          <tr><td>Curation Table</td><td>BigQuery</td><td>Transformed, business-ready data</td><td>Partitioned by <code>event_date</code>, enriched schema</td></tr>
+          <tr><td>Metadata Table</td><td>BigQuery</td><td>Tracks partition status</td><td>Cols: <code>partition_id</code>, <code>status</code>, <code>row_count</code>, <code>ingested_at</code>, <code>processed_at</code></td></tr>
+          <tr><td>Delta Query</td><td>BQ Scheduled Query / Stored Proc</td><td>SHA256 hash comparison + INSERT</td><td>Runs via Cloud Scheduler trigger</td></tr>
+          <tr><td>Transform Logic</td><td>BQ Stored Procedure / dbt</td><td>Business logic application</td><td>dbt model reads from staging partition</td></tr>
+          <tr><td>Scheduler</td><td>Cloud Scheduler</td><td>Trigger delta detection runs</td><td>Cron: <code>0 */4 * * *</code> (every 4 hrs)</td></tr>
+          <tr><td>Logging</td><td>Cloud Logging + BQ Audit</td><td>Pipeline run observability</td><td>Writes to <code>audit.pipeline_runs</code> table</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>✅ Pros &amp; ❌ Cons</h3>
+    <div class="table-wrap">
+      <table class="pros-cons-table">
+        <tbody>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Zero Infrastructure</strong></td><td>No servers, no clusters — pure managed SQL</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Lowest Cost</strong></td><td>Pay only for bytes scanned; no idle compute</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Native BQ Integration</strong></td><td>MERGE, EXCEPT, SHA256, partition decorators all built-in</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Fast Deployment</strong></td><td>SQL + scheduler = production in hours</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>dbt Compatible</strong></td><td>Transform step maps perfectly to dbt models</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>SQL Only</strong></td><td>Cannot run Python, custom UDFs with complexity, ML inference inline</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>No Native Orchestration</strong></td><td>Dependencies, retries, branching are hard in SQL alone</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Large Table Costs</strong></td><td>Full-table hash comparison on 500GB+ gets expensive fast</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>No Streaming</strong></td><td>Scheduled queries are batch-only; min latency ~15 minutes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- APPROACH 2 -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="approach-section" id="approach-2">
+  <div class="approach-header a2" data-num="02">
+    <div class="approach-num">Approach 02 — Best for streaming CDC &amp; any scale</div>
+    <div class="approach-title">Apache Beam / Dataflow</div>
+    <div class="approach-subtitle">Managed distributed pipeline with exactly-once semantics. Supports both batch and streaming delta detection. Full auto-scaling.</div>
+    <div class="service-logos">
+      <div class="svc"><div class="svc-icon ic-dataflow"><img src="https://api.iconify.design/logos:apache-beam.svg" alt="Beam"/></div>Dataflow</div>
+      <div class="svc"><div class="svc-icon ic-bq"><img src="https://api.iconify.design/logos:google-bigquery.svg" alt="BQ"/></div>BigQuery</div>
+      <div class="svc"><div class="svc-icon ic-pubsub">📨</div>Pub/Sub</div>
+      <div class="svc"><div class="svc-icon ic-gcs">🗄️</div>Cloud Storage</div>
+      <div class="svc"><div class="svc-icon ic-mon">📊</div>Cloud Monitoring</div>
+    </div>
+  </div>
+  <div class="approach-body">
+    <div class="diagram-wrap">
+      <div class="diagram-label">📐 High-Level Architecture</div>
+      <pre class="mermaid">
+flowchart TD
+    TRIG["📨 Pub/Sub or Scheduler"]
+    DF["⚙️ Dataflow Job\nApache Beam"]
+    RAW[("📦 Raw Table")]
+    STG[("📋 Staging Table")]
+    META[("🏷️ Metadata Table")]
+    CUR[("🏛️ Curation Table")]
+    GCS["🗄️ Cloud Storage\nTemp / Spill"]
+    MON["📊 Cloud Monitoring"]
+    DLQ[("❌ Dead Letter Queue")]
+
+    TRIG -->|"launch job"| DF
+    DF -->|"ReadFromBQ"| RAW
+    DF -->|"read hashes"| STG
+    DF -->|"Storage Write API"| STG
+    STG -->|"flag UNPROCESSED"| META
+    META -->|"trigger transform"| DF
+    DF -->|"write curated"| CUR
+    DF -->|"temp spill"| GCS
+    DF -->|"failed records"| DLQ
+    DF --> MON
+      </pre>
+    </div>
+    <div class="diagram-wrap">
+      <div class="diagram-label">🔄 Delta Detection &amp; Pipeline Flow</div>
+      <pre class="mermaid">
+flowchart TD
+    A([" 📨 Pub/Sub or GCS Trigger"]) --> B
+    B["🚀 Launch Dataflow Job\nApache Beam Pipeline"]
+    B --> C
+    subgraph BEAM[" ⚙️ Beam Pipeline — Dataflow Workers"]
+        C["📖 Read Raw Table\nSHA256 hash per row"]
+        C --> D["📖 Read Staging Hashes\npk + row_hash only"]
+        D --> E["🔗 CoGroupByKey\nJoin on PK"]
+        E --> F["🔍 DeltaDetectionDoFn\nNEW + CHANGED rows"]
+        F --> G["🏷️ Annotate Records\n_delta_type, _run_id"]
+    end
+    G --> H["📥 Write Staging Partition\nStorage Write API"]
+    H --> I["🏷️ Update Metadata\nstatus = UNPROCESSED"]
+    I --> J["🔧 Launch Transform Job\nRead staging partition"]
+    J --> K["📤 Write to Curation\nStorage Write API"]
+    K --> L["✅ Mark PROCESSED\nInsert audit row"]
+      </pre>
+    </div>
+
+    <h3>🧩 Component List</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Component</th><th>GCP Service</th><th>Purpose</th><th>Config Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Trigger Source</td><td>Pub/Sub</td><td>Fire pipeline on new raw data</td><td>CDC events or scheduled publish</td></tr>
+          <tr><td>Dataflow Job</td><td>Cloud Dataflow</td><td>Execute Beam pipeline</td><td>Runner: DataflowRunner, auto-scaling enabled</td></tr>
+          <tr><td>Delta DoFn</td><td>Apache Beam (Python)</td><td>CoGroupByKey hash comparison</td><td>Custom <code>DeltaDetectionDoFn</code> with side output</td></tr>
+          <tr><td>Staging Writer</td><td>BQ Storage Write API</td><td>Exactly-once write to staging partition</td><td>COMMITTED mode, partition decorator</td></tr>
+          <tr><td>Transform Job</td><td>Dataflow (2nd job)</td><td>Apply business logic</td><td>Reads from staging, writes to curation</td></tr>
+          <tr><td>Metadata Table</td><td>BigQuery</td><td>Partition status tracking</td><td>Written via Beam side output</td></tr>
+          <tr><td>Temp Bucket</td><td>Cloud Storage</td><td>Beam job temp files</td><td>Auto-created per job run</td></tr>
+          <tr><td>Dead Letter Table</td><td>BigQuery</td><td>Failed record capture</td><td>Side output to <code>dlq_table</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>✅ Pros &amp; ❌ Cons</h3>
+    <div class="table-wrap">
+      <table class="pros-cons-table">
+        <tbody>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Auto-Scaling</strong></td><td>Dataflow scales workers horizontally to match data volume</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Exactly-Once Semantics</strong></td><td>Storage Write API COMMITTED mode guarantees no duplicates</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Streaming Support</strong></td><td>Can run in streaming mode for near-real-time delta (&lt; 2 min latency)</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Managed Infrastructure</strong></td><td>No cluster management — Dataflow handles worker lifecycle</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Higher Cost at Low Volume</strong></td><td>Minimum worker spin-up cost; not efficient for &lt; 1 GB loads</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Steep Beam Learning Curve</strong></td><td>CoGroupByKey, windowing, triggers — complex API</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>No Built-in Orchestration</strong></td><td>Needs external trigger (Composer/Scheduler) to chain jobs</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Over-engineered for Simple Batch</strong></td><td>CQRS-style pipelines are overkill for nightly 10 GB loads</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- APPROACH 3 -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="approach-section" id="approach-3">
+  <div class="approach-header a3" data-num="03">
+    <div class="approach-num">Approach 03 — Best for enterprise orchestration</div>
+    <div class="approach-title">Cloud Composer (Managed Airflow)</div>
+    <div class="approach-subtitle">Full DAG orchestration with retries, SLA monitoring, branching, and native dbt integration. The gold standard for multi-step data pipelines.</div>
+    <div class="service-logos">
+      <div class="svc"><div class="svc-icon ic-composer"><img src="https://api.iconify.design/logos:airflow.svg" alt="Airflow"/></div>Cloud Composer</div>
+      <div class="svc"><div class="svc-icon ic-bq"><img src="https://api.iconify.design/logos:google-bigquery.svg" alt="BQ"/></div>BigQuery</div>
+      <div class="svc"><div class="svc-icon ic-dataflow">⚡</div>Dataflow</div>
+      <div class="svc"><div class="svc-icon ic-gcs">🗄️</div>Cloud Storage</div>
+      <div class="svc"><div class="svc-icon ic-dbt"><img src="https://api.iconify.design/logos:dbt.svg" alt="dbt"/></div>dbt</div>
+      <div class="svc"><div class="svc-icon ic-secret">🔐</div>Secret Manager</div>
+    </div>
+  </div>
+  <div class="approach-body">
+    <div class="diagram-wrap">
+      <div class="diagram-label">📐 High-Level Architecture</div>
+      <pre class="mermaid">
+flowchart TD
+    GCS["🗄️ GCS DAGs Bucket"]
+    COMP["🎼 Cloud Composer 2\nManaged Airflow"]
+    RAW[("📦 Raw Table")]
+    STG[("📋 Staging Table")]
+    META[("🏷️ Metadata Table")]
+    CUR[("🏛️ Curation Table")]
+    DF["⚙️ Dataflow\noptional large-scale"]
+    DBT["🔧 dbt Transform"]
+    ALERT["🔔 Monitoring + Alerts"]
+    SECMGR["🔐 Secret Manager"]
+
+    GCS -->|"auto-sync DAGs"| COMP
+    COMP -->|"read hashes"| RAW
+    COMP -->|"write delta partition"| STG
+    COMP -->|"flag partition"| META
+    META -->|"Airflow Sensor"| COMP
+    COMP -->|"trigger dbt"| DBT
+    DBT -->|"MERGE transform"| CUR
+    COMP -->|"DataflowOperator"| DF
+    DF -->|"large-scale write"| CUR
+    COMP --> ALERT
+    SECMGR -->|"credentials"| COMP
+      </pre>
+    </div>
+    <div class="diagram-wrap">
+      <div class="diagram-label">🔄 DAG Pipeline Flow</div>
+      <pre class="mermaid">
+flowchart TD
+    A([" ⏰ DAG Trigger"]) --> B
+    B["🔍 check_raw_new_data\nBigQuerySensor"]
+    B --> C["#️⃣ compute_raw_hashes\nSHA256 per row"]
+    C --> D["🔎 detect_delta_records\nLEFT JOIN hash compare"]
+    D --> E{Delta Rows > 0?}
+    E -->|No| F["📝 log_no_delta\nstatus = NO_DELTA"]
+    F --> Z
+    E -->|Yes| G["📥 write_staging_partition\nINSERT with date partition"]
+    G --> H["✅ validate_staging_write\nBigQueryCheckOperator"]
+    H --> I["🏷️ update_metadata\nstatus = UNPROCESSED"]
+    I --> J["⏳ wait_transform_slot\nExternalTaskSensor"]
+    J --> K["🔧 run_dbt_transform\ndbt run staging_to_curation"]
+    K --> L{dbt Succeeded?}
+    L -->|No| M["🚨 handle_failure\nalert + raise exception"]
+    L -->|Yes| N["✅ mark_partition_processed\nstatus = PROCESSED"]
+    N --> O["📊 write_audit_log\naudit.pipeline_runs"]
+    O --> Z([" ✅ DAG Complete"])
+      </pre>
+    </div>
+
+    <h3>🧩 Component List</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Component</th><th>GCP / Tool</th><th>Purpose</th><th>Config Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Cloud Composer 2</td><td>Cloud Composer</td><td>DAG orchestration engine</td><td><code>composer-2-large</code>, autoscaling workers</td></tr>
+          <tr><td>DAGs Bucket</td><td>Cloud Storage</td><td>DAG Python files, dbt project</td><td>Auto-synced to Composer workers</td></tr>
+          <tr><td>BigQuerySensor</td><td>Airflow Operator</td><td>Wait for new raw data</td><td>Polls INFORMATION_SCHEMA or metadata table</td></tr>
+          <tr><td>BigQueryInsertJobOperator</td><td>Airflow Operator</td><td>Run SQL (delta detect, write, validate)</td><td>Async mode, uses BQ job API</td></tr>
+          <tr><td>BigQueryCheckOperator</td><td>Airflow Operator</td><td>Data quality gate after write</td><td>Fails DAG if count = 0</td></tr>
+          <tr><td>dbt Operator</td><td>Bash / dbt Cloud</td><td>Transform staging to curation</td><td>dbt models parameterized by partition date</td></tr>
+          <tr><td>Metadata Table</td><td>BigQuery</td><td>Partition lifecycle tracking</td><td><code>audit.partition_metadata</code> table</td></tr>
+          <tr><td>Audit Log Table</td><td>BigQuery</td><td>Full pipeline run history</td><td><code>audit.pipeline_runs</code> table</td></tr>
+          <tr><td>Cloud Monitoring</td><td>GCP Monitoring</td><td>DAG SLA alerts, failure notifications</td><td>Integrated with Airflow alerting hooks</td></tr>
+          <tr><td>Secret Manager</td><td>Secret Manager</td><td>BQ credentials, dbt tokens</td><td>Accessed via Airflow GCP backends</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>✅ Pros &amp; ❌ Cons</h3>
+    <div class="table-wrap">
+      <table class="pros-cons-table">
+        <tbody>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Full Orchestration</strong></td><td>DAG tasks with dependencies, retries, SLA, branching — enterprise-grade</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Built-in Observability</strong></td><td>Airflow UI: task logs, Gantt chart, DAG history, XCom values</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>dbt Native Integration</strong></td><td>dbt + Airflow is an industry-standard data engineering stack</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Audit &amp; Lineage</strong></td><td>XCom + BQ audit table gives complete run history</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>High Fixed Cost</strong></td><td>Composer 2 environment ~$300–800/month even at idle</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Operational Overhead</strong></td><td>Composer upgrades, worker scaling, GKE pod management</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Overkill for Single Tables</strong></td><td>Airflow setup cost not justified for 1-2 table pipelines</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Not Serverless</strong></td><td>Always-on GKE cluster; no true scale-to-zero</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- APPROACH 4 -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="approach-section" id="approach-4">
+  <div class="approach-header a4" data-num="04">
+    <div class="approach-num">Approach 04 — Best for event-driven micro loads</div>
+    <div class="approach-title">Cloud Functions + BigQuery</div>
+    <div class="approach-subtitle">Fully serverless, zero idle cost. Triggers instantly on GCS file arrival. Ideal for &lt; 10 GB event-driven ingestion patterns.</div>
+    <div class="service-logos">
+      <div class="svc"><div class="svc-icon ic-func">⚡</div>Cloud Functions</div>
+      <div class="svc"><div class="svc-icon ic-bq"><img src="https://api.iconify.design/logos:google-bigquery.svg" alt="BQ"/></div>BigQuery</div>
+      <div class="svc"><div class="svc-icon ic-gcs">🗄️</div>Cloud Storage</div>
+      <div class="svc"><div class="svc-icon ic-eventarc">⚡</div>Eventarc</div>
+      <div class="svc"><div class="svc-icon ic-pubsub">📨</div>Pub/Sub</div>
+      <div class="svc"><div class="svc-icon ic-tasks">📬</div>Cloud Tasks</div>
+    </div>
+  </div>
+  <div class="approach-body">
+    <div class="diagram-wrap">
+      <div class="diagram-label">📐 High-Level Architecture</div>
+      <pre class="mermaid">
+flowchart TD
+    GCS["🗄️ Cloud Storage\nRaw Files Landing"]
+    EV["⚡ Eventarc\nGCS Trigger"]
+    CF1["☁️ CF: delta_detector\nPython Gen2"]
+    RAW[("📦 Raw Table")]
+    STG[("📋 Staging Table")]
+    META[("🏷️ Metadata Table")]
+    TASKS["📬 Cloud Tasks Queue"]
+    CF2["☁️ CF: transform_loader\nPython Gen2"]
+    CUR[("🏛️ Curation Table")]
+    MON["📊 Cloud Monitoring"]
+
+    GCS -->|"file.finalized"| EV
+    EV -->|"HTTP invoke"| CF1
+    CF1 -->|"delta SQL"| RAW
+    CF1 -->|"hash lookup"| STG
+    CF1 -->|"BQ Load Job"| STG
+    CF1 -->|"insert row"| META
+    CF1 -->|"enqueue"| TASKS
+    TASKS -->|"HTTP invoke"| CF2
+    CF2 -->|"read partition"| STG
+    CF2 -->|"MERGE"| CUR
+    CF2 -->|"mark PROCESSED"| META
+    CF1 --> MON
+    CF2 --> MON
+      </pre>
+    </div>
+    <div class="diagram-wrap">
+      <div class="diagram-label">🔄 Delta Detection &amp; Pipeline Flow</div>
+      <pre class="mermaid">
+flowchart TD
+    A([" 📁 GCS File Arrives"]) --> B
+    B["⚡ Eventarc Trigger\nHTTP → CF: delta_detector"]
+    B --> C["🔍 Delta Detection Query\nSHA256 hash compare"]
+    C --> D{delta_count > 0?}
+    D -->|No| E["📝 Update Metadata\nstatus = NO_DELTA"]
+    D -->|Yes| F["📥 BQ Load Job\nWrite Staging Partition"]
+    F --> G["🏷️ Update Metadata\nstatus = UNPROCESSED"]
+    G --> H["📬 Enqueue Cloud Tasks\nschedule +5 min"]
+    H --> I["⚡ CF: transform_loader\nTriggered by Cloud Tasks"]
+    I --> J["🔧 Run Transform Query\npartition_date = today"]
+    J --> K["📤 Write to Curation\nBQ Load Job"]
+    K --> L["✅ Mark PROCESSED\nUpdate Metadata"]
+    L --> M["📊 Emit Custom Metric\nrows_processed"]
+      </pre>
+    </div>
+
+    <h3>🧩 Component List</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Component</th><th>GCP Service</th><th>Purpose</th><th>Config Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Event Trigger</td><td>Eventarc</td><td>Fire function on GCS file arrival</td><td><code>google.cloud.storage.object.v1.finalized</code></td></tr>
+          <tr><td>CF: delta_detector</td><td>Cloud Functions Gen 2</td><td>Detect delta via BQ Jobs API</td><td>Python 3.11, 2 GB RAM, 540s timeout</td></tr>
+          <tr><td>CF: transform_loader</td><td>Cloud Functions Gen 2</td><td>Apply transforms, load to curation</td><td>Python 3.11, 2 GB RAM, 540s timeout</td></tr>
+          <tr><td>BQ Jobs API</td><td>BigQuery</td><td>Run delta SQL and transform SQL</td><td>Async job polling with <code>result()</code></td></tr>
+          <tr><td>Cloud Tasks</td><td>Cloud Tasks</td><td>Decouple delta detect to transform</td><td>Queue with rate limiting + retries</td></tr>
+          <tr><td>Cloud Monitoring</td><td>GCP Monitoring</td><td>Custom metrics, uptime checks</td><td><code>google-cloud-monitoring</code> Python client</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>✅ Pros &amp; ❌ Cons</h3>
+    <div class="table-wrap">
+      <table class="pros-cons-table">
+        <tbody>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Fully Serverless</strong></td><td>Zero idle cost — pay only per invocation (first 2M free per month)</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Event-Driven</strong></td><td>Triggers instantly on GCS file arrival or Pub/Sub message</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Auto-Scales to Zero</strong></td><td>No running cost when no files arrive</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Fast to Deploy</strong></td><td>Production-ready in hours; no infra to provision</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Execution Timeout</strong></td><td>CF Gen 2 max is 60 min but entire BQ job must complete within that</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Memory &amp; CPU Limits</strong></td><td>Max 16 GB RAM, 4 vCPU — not for in-memory large dataset transforms</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Complex Multi-Step Pipelines</strong></td><td>5+ step pipelines become unmaintainable without an orchestrator</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Hard to Monitor End-to-End</strong></td><td>No single pane for pipeline status; need custom Monitoring dashboards</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- APPROACH 5 -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="approach-section" id="approach-5">
+  <div class="approach-header a5" data-num="05">
+    <div class="approach-num">Approach 05 — Best for &gt; 500 GB batch &amp; Spark teams</div>
+    <div class="approach-title">Dataproc (Apache Spark)</div>
+    <div class="approach-subtitle">Distributed PySpark jobs on managed Dataproc clusters. Left Anti Join delta detection handles 10 TB+ with preemptible VMs for cost efficiency.</div>
+    <div class="service-logos">
+      <div class="svc"><div class="svc-icon ic-dataproc">🔥</div>Dataproc</div>
+      <div class="svc"><div class="svc-icon ic-spark"><img src="https://api.iconify.design/logos:apache-spark.svg" alt="Spark"/></div>Apache Spark</div>
+      <div class="svc"><div class="svc-icon ic-bq"><img src="https://api.iconify.design/logos:google-bigquery.svg" alt="BQ"/></div>BigQuery</div>
+      <div class="svc"><div class="svc-icon ic-gcs">🗄️</div>Cloud Storage</div>
+      <div class="svc"><div class="svc-icon ic-composer"><img src="https://api.iconify.design/logos:airflow.svg" alt="Airflow"/></div>Cloud Composer</div>
+    </div>
+  </div>
+  <div class="approach-body">
+    <div class="diagram-wrap">
+      <div class="diagram-label">📐 High-Level Architecture</div>
+      <pre class="mermaid">
+flowchart TD
+    SCHED["🎼 Composer or Scheduler"]
+    GCS_SCRIPT["🗄️ GCS Scripts Bucket"]
+    DP["🔥 Dataproc Cluster\nor Serverless Spark"]
+    RAW[("📦 Raw Table")]
+    STG[("📋 Staging Table")]
+    META[("🏷️ Metadata Table")]
+    CUR[("🏛️ Curation Table")]
+    GCS_TEMP["🗄️ GCS Temp\nSpark shuffle"]
+    YARN["📊 Spark UI / YARN"]
+
+    SCHED -->|"submit PySpark job"| DP
+    GCS_SCRIPT -->|"load script"| DP
+    DP -->|"BQ Connector read"| RAW
+    DP -->|"read hashes"| STG
+    DP -->|"write partition"| STG
+    DP -->|"write metadata"| META
+    DP -->|"write curated"| CUR
+    DP <-->|"shuffle / spill"| GCS_TEMP
+    DP --> YARN
+      </pre>
+    </div>
+    <div class="diagram-wrap">
+      <div class="diagram-label">🔄 Delta Detection &amp; Pipeline Flow</div>
+      <pre class="mermaid">
+flowchart TD
+    A([" ⏰ Trigger: Composer or gcloud"]) --> B
+    B["🚀 Submit Dataproc Job\nDataprocSubmitJobOperator"]
+    B --> C
+    subgraph SPARK[" ⚙️ PySpark Job — Dataproc Workers"]
+        C["📖 Read Raw Table\nfiltered to ingestion_date"]
+        C --> D["📖 Read Staging Hashes\npk + row_hash only"]
+        D --> E["#️⃣ Compute Row Hashes\nsha2(concat_ws, 256)"]
+        E --> F["🔍 Detect NEW Rows\nLeft Anti Join on PK"]
+        F --> G["🔍 Detect CHANGED Rows\nInner Join + hash mismatch"]
+        G --> H["🔗 Union Delta Records\nadd _ingested_at, _run_id"]
+    end
+    H --> I{delta_df count > 0?}
+    I -->|No| J["📝 Metadata: NO_DELTA\nstop job cleanly"]
+    I -->|Yes| K["📥 Write Staging Partition\nBQ Connector APPEND"]
+    K --> L["🏷️ Update Metadata\nstatus = UNPROCESSED"]
+    L --> M["🔧 Spark SQL Transform\nstaging → curated_df"]
+    M --> N["📤 Write Curation Partition\nBQ Connector OVERWRITE"]
+    N --> O["✅ Mark PROCESSED\nUpdate Metadata"]
+      </pre>
+    </div>
+
+    <h3>🧩 Component List</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Component</th><th>GCP Service</th><th>Purpose</th><th>Config Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Dataproc Cluster</td><td>Cloud Dataproc</td><td>Execute PySpark jobs</td><td><code>n1-standard-8</code> workers, Preemptible VMs for cost</td></tr>
+          <tr><td>Dataproc Serverless</td><td>Cloud Dataproc</td><td>Serverless Spark (no cluster mgmt)</td><td><code>gcloud dataproc batches submit pyspark</code></td></tr>
+          <tr><td>BQ Connector</td><td>Spark-BigQuery Connector</td><td>Read/write BigQuery from Spark</td><td><code>spark-bigquery-with-dependencies</code></td></tr>
+          <tr><td>GCS Temp Bucket</td><td>Cloud Storage</td><td>Spark shuffle / temp spill</td><td>Auto-managed by Spark</td></tr>
+          <tr><td>Dataproc Autoscaling</td><td>Dataproc</td><td>Dynamic worker count</td><td>Policy: min=2, max=20 workers</td></tr>
+          <tr><td>Cloud Composer (optional)</td><td>Cloud Composer</td><td>Trigger and monitor Dataproc job</td><td><code>DataprocSubmitJobOperator</code></td></tr>
+          <tr><td>Spark UI / YARN</td><td>Dataproc Web UI</td><td>Job monitoring, stage details</td><td>Accessible via Cloud Dataproc console</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>✅ Pros &amp; ❌ Cons</h3>
+    <div class="table-wrap">
+      <table class="pros-cons-table">
+        <tbody>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Massive Scale</strong></td><td>Handles 500 GB–10 TB+ delta detection with distributed Spark join</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Preemptible VMs</strong></td><td>60–80% cost reduction using spot/preemptible workers</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Left Anti Join</strong></td><td>The most efficient pattern for large-scale delta detection</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Spark Ecosystem</strong></td><td>Delta Lake, Apache Iceberg, MLlib, GraphX all available</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Cluster Startup: 3–5 min</strong></td><td>Cold cluster adds significant latency to every run</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Expensive for Small Jobs</strong></td><td>Minimum cluster cost even for a 1 GB delta</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Cluster Management</strong></td><td>Version upgrades, init scripts, autoscaling policies need tuning</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Requires Spark Expertise</strong></td><td>Not every team has PySpark + BQ connector experience</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- APPROACH 6 -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="approach-section" id="approach-6">
+  <div class="approach-header a6" data-num="06">
+    <div class="approach-num">Approach 06 ⭐ NEW — Month-end batch · zero idle cost · full governance</div>
+    <div class="approach-title">Composer + Ephemeral Dataproc + Spark + Dataplex + Dashboard</div>
+    <div class="approach-subtitle">The complete enterprise pattern. Composer orchestrates everything, Dataproc runs only when needed, Dataplex governs all three data layers, and a Looker Studio dashboard gives full observability.</div>
+    <div class="service-logos">
+      <div class="svc"><div class="svc-icon ic-composer"><img src="https://api.iconify.design/logos:airflow.svg" alt="Airflow"/></div>Cloud Composer</div>
+      <div class="svc"><div class="svc-icon ic-dataproc">🔥</div>Dataproc</div>
+      <div class="svc"><div class="svc-icon ic-spark"><img src="https://api.iconify.design/logos:apache-spark.svg" alt="Spark"/></div>Apache Spark</div>
+      <div class="svc"><div class="svc-icon ic-bq"><img src="https://api.iconify.design/logos:google-bigquery.svg" alt="BQ"/></div>BigQuery</div>
+      <div class="svc"><div class="svc-icon ic-dataplex">🏞️</div>Dataplex</div>
+      <div class="svc"><div class="svc-icon ic-gcs">🗄️</div>Cloud Storage</div>
+      <div class="svc"><div class="svc-icon ic-looker">📊</div>Looker Studio</div>
+      <div class="svc"><div class="svc-icon ic-mon">📈</div>Cloud Monitoring</div>
+      <div class="svc"><div class="svc-icon ic-log">📋</div>Cloud Logging</div>
+      <div class="svc"><div class="svc-icon ic-secret">🔐</div>Secret Manager</div>
+    </div>
+  </div>
+  <div class="approach-body">
+
+    <div class="intent-box a6">
+      <strong>Design Intent:</strong> Cloud Composer is scheduled on the <strong>last day of every month</strong>. On trigger, it spins up a fresh ephemeral Dataproc cluster, submits a PySpark job that reads the BigQuery raw table, compares with staging using SHA256 hash, detects delta records, and loads them into the staging table as a new partition. The cluster is immediately destroyed after the job completes. <strong>Dataplex</strong> sits as a unified governance layer across all three BQ layers — organising tables into Lakes and Zones, auto-discovering metadata, running automated DQ scans after every partition write, tracking end-to-end data lineage, and enforcing zone-level IAM policies. A live Looker Studio dashboard reads from BQ audit tables (including Dataplex DQ results) and provides full pipeline observability.
+    </div>
+
+    <!-- Architecture image -->
+    <div class="arch-image-wrap">
+      <img src="./gcp_architecture_dataplex.png" alt="GCP Data Pipeline Architecture + Dataplex Integration" />
+      <div class="image-caption">
+        <strong>Architecture Diagram:</strong> GCP Data Pipeline Architecture + Dataplex Integration &nbsp;|&nbsp;
+        🟧 Cloud Composer (Airflow) &nbsp;·&nbsp; 🟦 Dataproc (Ephemeral Cluster) &nbsp;·&nbsp; 🟩 Cloud Storage (Persistent) &nbsp;·&nbsp; 🟪 Dataplex (Governance)
+      </div>
+    </div>
+
+    <div class="legend-grid">
+      <div class="legend-item"><div class="legend-dot" style="background:#E8A435;"></div><strong>Cloud Composer (Airflow)</strong> — Orchestration, scheduling, lifecycle management</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#4A90D9;"></div><strong>Dataproc (Ephemeral Cluster)</strong> — Created on demand, destroyed after job</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#5AAD5A;"></div><strong>Cloud Storage (Persistent)</strong> — DAG files, PySpark scripts, temp data</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--dataplex);"></div><strong>Dataplex (NEW — Governance)</strong> — Data Catalog, DQ Scans, Lineage</div>
+    </div>
+
+    <!-- ── Approach 6 Custom Architecture Diagram ─────────────────────── -->
+    <style>
+      .arch6 {
+        background: #0B1220;
+        border: 1px solid #1E2A3A;
+        border-radius: 14px;
+        padding: 36px 32px 40px;
+        margin: 24px 0;
+        overflow-x: auto;
+      }
+      .arch6-label {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+        text-transform: uppercase; color: #6B7FA0; margin-bottom: 30px;
+        display: flex; align-items: center; gap: 8px;
+      }
+      .arch6-label::before { content:''; display:inline-block; width:16px; height:2px; background:#6B7FA0; }
+
+      /* Top row: 3 columns */
+      .arch6-top {
+        display: grid;
+        grid-template-columns: 1fr 40px 1fr 40px 1fr;
+        gap: 0;
+        align-items: start;
+        margin-bottom: 28px;
+      }
+
+      /* Arrow column */
+      .arch6-arrow {
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; padding-top: 40px; color: #4A6A90;
+        font-size: 22px;
+      }
+      .arch6-arrow-label {
+        font-size: 10px; color: #4A6A90; text-align: center;
+        margin-top: 4px; line-height: 1.3; max-width: 60px;
+      }
+
+      /* Zone panel */
+      .arch6-zone {
+        border-radius: 12px; border: 1.5px solid;
+        padding: 20px 18px 18px; position: relative;
+      }
+      .arch6-zone-title {
+        font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+        text-transform: uppercase; margin-bottom: 14px;
+        display: flex; align-items: center; gap: 7px;
+      }
+      .arch6-zone-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+      /* Composer zone */
+      .zone-composer { border-color: #017CEE; background: rgba(1,124,238,0.06); }
+      .zone-composer .arch6-zone-title { color: #017CEE; }
+      .zone-composer .arch6-zone-dot { background: #017CEE; }
+
+      /* Dataproc zone */
+      .zone-dataproc { border-color: #E91E63; background: rgba(233,30,99,0.06); }
+      .zone-dataproc .arch6-zone-title { color: #E91E63; }
+      .zone-dataproc .arch6-zone-dot { background: #E91E63; }
+
+      /* Dataplex zone */
+      .zone-dataplex { border-color: #00BCD4; background: rgba(0,188,212,0.06); }
+      .zone-dataplex .arch6-zone-title { color: #00BCD4; }
+      .zone-dataplex .arch6-zone-dot { background: #00BCD4; }
+
+      /* Observability zone */
+      .zone-obs { border-color: #34A853; background: rgba(52,168,83,0.06); }
+      .zone-obs .arch6-zone-title { color: #34A853; }
+      .zone-obs .arch6-zone-dot { background: #34A853; }
+
+      /* GCS zone */
+      .zone-gcs { border-color: #0097A7; background: rgba(0,151,167,0.06); }
+      .zone-gcs .arch6-zone-title { color: #0097A7; }
+      .zone-gcs .arch6-zone-dot { background: #0097A7; }
+
+      /* Node item */
+      .arch6-node {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 9px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        font-size: 13.5px;
+        line-height: 1.5;
+      }
+      .arch6-node:last-child { margin-bottom: 0; }
+      .arch6-node-icon { font-size: 17px; margin-bottom: 4px; }
+      .arch6-node-name { font-weight: 700; color: #fff; font-size: 14px; }
+      .arch6-node-sub { font-size: 12px; color: #8BA0BC; margin-top: 2px; line-height: 1.4; }
+
+      /* BQ table node */
+      .arch6-bq-node {
+        background: rgba(66,133,244,0.08);
+        border: 1.5px solid rgba(66,133,244,0.35);
+        border-radius: 9px; padding: 12px 14px; margin-bottom: 10px;
+      }
+      .arch6-bq-node:last-child { margin-bottom: 0; }
+      .arch6-bq-node-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+      .arch6-bq-badge {
+        font-size: 10px; font-weight: 800; letter-spacing: 0.07em;
+        text-transform: uppercase; color: #4285F4;
+        background: rgba(66,133,244,0.15); border-radius: 4px;
+        padding: 1px 7px;
+      }
+      .arch6-bq-label { font-weight: 700; color: #fff; font-size: 14px; }
+      .arch6-bq-sub { font-size: 11.5px; color: #7A9FC8; line-height: 1.4; }
+
+      /* Dataplex inner zones */
+      .arch6-dp-inner {
+        border-radius: 8px; border: 1px solid rgba(0,188,212,0.25);
+        background: rgba(0,188,212,0.04); padding: 10px 12px; margin-bottom: 10px;
+      }
+      .arch6-dp-inner:last-child { margin-bottom: 0; }
+      .arch6-dp-inner-title { font-size: 11px; font-weight: 700; color: #00BCD4; margin-bottom: 8px; letter-spacing: 0.05em; }
+
+      /* Flow row connecting columns */
+      .arch6-flow-row {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 10px;
+      }
+      .arch6-flow-tag {
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 11px; font-weight: 600; padding: 4px 10px;
+        border-radius: 20px; white-space: nowrap;
+      }
+      .tag-blue   { background: rgba(66,133,244,0.15);  color: #6AA3F5; border: 1px solid rgba(66,133,244,0.3); }
+      .tag-green  { background: rgba(52,168,83,0.15);   color: #5DC779; border: 1px solid rgba(52,168,83,0.3); }
+      .tag-amber  { background: rgba(249,171,0,0.15);   color: #FAC030; border: 1px solid rgba(249,171,0,0.3); }
+      .tag-cyan   { background: rgba(0,188,212,0.15);   color: #29D4E8; border: 1px solid rgba(0,188,212,0.3); }
+      .tag-red    { background: rgba(234,67,53,0.15);   color: #F07060; border: 1px solid rgba(234,67,53,0.3); }
+      .tag-purple { background: rgba(139,92,246,0.15);  color: #A98DF7; border: 1px solid rgba(139,92,246,0.3); }
+
+      /* Divider row */
+      .arch6-divider {
+        display: grid;
+        grid-template-columns: 1fr 40px 1fr 40px 1fr;
+        align-items: center; margin: 4px 0 24px;
+      }
+      .arch6-divider-line { height: 1px; background: rgba(255,255,255,0.07); }
+      .arch6-divider-arrow { text-align: center; color: #3A5A80; font-size: 20px; }
+
+      /* Bottom: GCS + Observability full-width */
+      .arch6-bottom {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+        margin-top: 8px;
+      }
+
+      /* Step badges */
+      .step-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 22px; height: 22px; border-radius: 50%;
+        font-size: 11px; font-weight: 800; color: #fff;
+        background: #8B5CF6; flex-shrink: 0; margin-right: 6px;
+      }
+
+      /* Connection indicators */
+      .arch6-connections {
+        background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px; padding: 16px 20px; margin-top: 24px;
+      }
+      .arch6-connections-title { font-size: 12px; font-weight: 700; color: #6B7FA0; margin-bottom: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+      .arch6-conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+      .arch6-conn-item {
+        display: flex; align-items: flex-start; gap: 8px;
+        font-size: 12.5px; color: #8BA0BC; line-height: 1.4;
+        padding: 6px 0;
+      }
+    </style>
+
+    <div class="arch6">
+      <div class="arch6-label">📐 High-Level Architecture</div>
+
+      <!-- Top 3 columns: Composer | → | Dataproc | → | Dataplex -->
+      <div class="arch6-top">
+
+        <!-- Column 1: Orchestration -->
+        <div class="arch6-zone zone-composer">
+          <div class="arch6-zone-title"><div class="arch6-zone-dot"></div>Orchestration Layer</div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">⏰</div>
+            <div class="arch6-node-name">Cloud Composer 2</div>
+            <div class="arch6-node-sub">Schedule: <code style="font-size:11px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">0 2 28-31 * *</code><br/>Last day of month trigger</div>
+          </div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">🎼</div>
+            <div class="arch6-node-name">Airflow DAG</div>
+            <div class="arch6-node-sub">delta_ingestion_monthly<br/>Manages full pipeline lifecycle</div>
+          </div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">📅</div>
+            <div class="arch6-node-name">Last-Day Validator</div>
+            <div class="arch6-node-sub">PythonOperator<br/>Skips non-month-end runs</div>
+          </div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">🔍</div>
+            <div class="arch6-node-name">BigQuerySensor</div>
+            <div class="arch6-node-sub">Waits for raw data availability<br/>poke_interval: 120s</div>
+          </div>
+        </div>
+
+        <!-- Arrow 1 -->
+        <div class="arch6-arrow">
+          <div style="font-size:28px;">→</div>
+          <div class="arch6-arrow-label">
+            <span class="arch6-flow-tag tag-blue" style="font-size:10px;">① Create Cluster</span>
+          </div>
+          <div style="margin-top:12px;font-size:28px;">←</div>
+          <div class="arch6-arrow-label">
+            <span class="arch6-flow-tag tag-red" style="font-size:10px;">⑥ Delete</span>
+          </div>
+        </div>
+
+        <!-- Column 2: Compute -->
+        <div class="arch6-zone zone-dataproc">
+          <div class="arch6-zone-title"><div class="arch6-zone-dot"></div>Ephemeral Compute</div>
+
+          <div class="arch6-node" style="background:rgba(233,30,99,0.08); border-color:rgba(233,30,99,0.3);">
+            <div class="arch6-node-icon">🔥</div>
+            <div class="arch6-node-name">Dataproc Cluster</div>
+            <div class="arch6-node-sub">Created on-demand · Destroyed after job<br/><strong style="color:#F06090;">Zero idle cost</strong></div>
+          </div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">🖥️</div>
+            <div class="arch6-node-name">Master Node</div>
+            <div class="arch6-node-sub">n2-standard-4 · 1 node</div>
+          </div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">⚙️</div>
+            <div class="arch6-node-name">Worker Nodes</div>
+            <div class="arch6-node-sub">n2-standard-8 · 2–10 autoscale<br/>Preemptible secondary workers</div>
+          </div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">✨</div>
+            <div class="arch6-node-name">PySpark Delta Job</div>
+            <div class="arch6-node-sub">SHA256 hash compare<br/>Left Anti Join (NEW) + Inner Join (CHANGED)</div>
+          </div>
+
+          <div class="arch6-node">
+            <div class="arch6-node-icon">🔗</div>
+            <div class="arch6-node-name">Spark-BQ Connector</div>
+            <div class="arch6-node-sub">spark-bigquery-with-dependencies_2.12<br/>Reads Raw · Writes Staging &amp; Curation</div>
+          </div>
+        </div>
+
+        <!-- Arrow 2 -->
+        <div class="arch6-arrow">
+          <div style="font-size:28px;">→</div>
+          <div class="arch6-arrow-label">
+            <span class="arch6-flow-tag tag-blue" style="font-size:10px;">② Read Raw</span>
+          </div>
+          <div style="margin-top:8px; font-size:28px;">→</div>
+          <div class="arch6-arrow-label">
+            <span class="arch6-flow-tag tag-green" style="font-size:10px;">③ Write Staging</span>
+          </div>
+          <div style="margin-top:8px;font-size:28px;">→</div>
+          <div class="arch6-arrow-label">
+            <span class="arch6-flow-tag tag-cyan" style="font-size:10px;">④ Write Curation</span>
+          </div>
+        </div>
+
+        <!-- Column 3: Dataplex + BQ Layers -->
+        <div class="arch6-zone zone-dataplex">
+          <div class="arch6-zone-title"><div class="arch6-zone-dot"></div>Dataplex — Unified Data Lake</div>
+
+          <div class="arch6-dp-inner">
+            <div class="arch6-dp-inner-title">📦 Raw Zone &nbsp;·&nbsp; <span style="opacity:0.7;font-size:10px;">type: RAW · read-only</span></div>
+            <div class="arch6-bq-node" style="margin-bottom:0">
+              <div class="arch6-bq-header" style="display:flex;align-items:center;gap:8px;margin-bottom:3px;"><span class="arch6-bq-badge">BQ</span><span class="arch6-bq-label">Raw Table</span></div>
+              <div class="arch6-bq-sub">project.raw.table · partitioned by ingestion_date</div>
+            </div>
+          </div>
+
+          <div class="arch6-dp-inner">
+            <div class="arch6-dp-inner-title">📋 Staging Zone &nbsp;·&nbsp; <span style="opacity:0.7;font-size:10px;">type: CURATED</span></div>
+            <div class="arch6-bq-node">
+              <div class="arch6-bq-header" style="display:flex;align-items:center;gap:8px;margin-bottom:3px;"><span class="arch6-bq-badge">BQ</span><span class="arch6-bq-label">Staging Table</span></div>
+              <div class="arch6-bq-sub">New partition per run · _delta_type: NEW / CHANGED</div>
+            </div>
+            <div class="arch6-node" style="margin-bottom:0;background:rgba(0,188,212,0.07);border-color:rgba(0,188,212,0.2);">
+              <div style="font-size:12px;font-weight:700;color:#29D4E8;">🔍 DQ Scan — Staging</div>
+              <div style="font-size:11.5px;color:#7ABCC8;margin-top:3px;">null_check · uniqueness · format_check · row_count_threshold</div>
+            </div>
+          </div>
+
+          <div class="arch6-dp-inner">
+            <div class="arch6-dp-inner-title">🏛️ Curation Zone &nbsp;·&nbsp; <span style="opacity:0.7;font-size:10px;">type: CURATED</span></div>
+            <div class="arch6-bq-node">
+              <div class="arch6-bq-header" style="display:flex;align-items:center;gap:8px;margin-bottom:3px;"><span class="arch6-bq-badge">BQ</span><span class="arch6-bq-label">Curation Table</span></div>
+              <div class="arch6-bq-sub">Transformed · partitioned by event_date</div>
+            </div>
+            <div class="arch6-node" style="margin-bottom:0;background:rgba(0,188,212,0.07);border-color:rgba(0,188,212,0.2);">
+              <div style="font-size:12px;font-weight:700;color:#29D4E8;">🔍 DQ Scan — Curation</div>
+              <div style="font-size:11.5px;color:#7ABCC8;margin-top:3px;">referential_integrity · range_check · business_rule_validation</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+            <div class="arch6-node" style="margin-bottom:0;">
+              <div style="font-size:13px;font-weight:700;color:#fff;">📖 Catalog</div>
+              <div style="font-size:11.5px;color:#8BA0BC;margin-top:2px;">Auto-discovery<br/>Business tagging</div>
+            </div>
+            <div class="arch6-node" style="margin-bottom:0;">
+              <div style="font-size:13px;font-weight:700;color:#fff;">🔗 Lineage</div>
+              <div style="font-size:11.5px;color:#8BA0BC;margin-top:2px;">Raw → Staging<br/>→ Curation (auto)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom row: GCS + Audit BQ + Observability -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:4px;">
+
+        <!-- GCS -->
+        <div class="arch6-zone zone-gcs">
+          <div class="arch6-zone-title"><div class="arch6-zone-dot"></div>Cloud Storage (Persistent)</div>
+          <div class="arch6-node">
+            <div class="arch6-node-icon">🗄️</div>
+            <div class="arch6-node-name">DAGs Bucket</div>
+            <div class="arch6-node-sub">DAG .py files — auto-synced to Composer</div>
+          </div>
+          <div class="arch6-node">
+            <div class="arch6-node-icon">📜</div>
+            <div class="arch6-node-name">Scripts Bucket</div>
+            <div class="arch6-node-sub">PySpark job script — loaded onto cluster</div>
+          </div>
+          <div class="arch6-node" style="margin-bottom:0">
+            <div class="arch6-node-icon">🗃️</div>
+            <div class="arch6-node-name">Temp Bucket</div>
+            <div class="arch6-node-sub">Spark shuffle + BQ staging area<br/>Auto-deleted after 7 days</div>
+          </div>
+        </div>
+
+        <!-- Audit BQ -->
+        <div class="arch6-zone" style="border-color:#4285F4;background:rgba(66,133,244,0.05);">
+          <div class="arch6-zone-title" style="color:#4285F4;"><div class="arch6-zone-dot" style="background:#4285F4;"></div>Audit &amp; Metadata (BigQuery)</div>
+          <div class="arch6-bq-node">
+            <div class="arch6-bq-header" style="display:flex;align-items:center;gap:8px;margin-bottom:3px;"><span class="arch6-bq-badge">BQ</span><span class="arch6-bq-label">audit.pipeline_runs</span></div>
+            <div class="arch6-bq-sub">run_id · status · rows_delta · duration · dq_status</div>
+          </div>
+          <div class="arch6-bq-node">
+            <div class="arch6-bq-header" style="display:flex;align-items:center;gap:8px;margin-bottom:3px;"><span class="arch6-bq-badge">BQ</span><span class="arch6-bq-label">audit.partition_metadata</span></div>
+            <div class="arch6-bq-sub">UNPROCESSED → PROCESSED → DQ_FAILED</div>
+          </div>
+          <div class="arch6-bq-node" style="margin-bottom:0">
+            <div class="arch6-bq-header" style="display:flex;align-items:center;gap:8px;margin-bottom:3px;"><span class="arch6-bq-badge">BQ</span><span class="arch6-bq-label">audit.dq_scan_results</span></div>
+            <div class="arch6-bq-sub">Per-rule pass/fail · severity · run_id · partition_date</div>
+          </div>
+        </div>
+
+        <!-- Observability -->
+        <div class="arch6-zone zone-obs">
+          <div class="arch6-zone-title"><div class="arch6-zone-dot"></div>Observability Layer</div>
+          <div class="arch6-node">
+            <div class="arch6-node-icon">📊</div>
+            <div class="arch6-node-name">Looker Studio Dashboard</div>
+            <div class="arch6-node-sub">5-page live report — auto-refreshes from BQ<br/>Incl. Dataplex DQ Results page</div>
+          </div>
+          <div class="arch6-node">
+            <div class="arch6-node-icon">📈</div>
+            <div class="arch6-node-name">Cloud Monitoring</div>
+            <div class="arch6-node-sub">Custom metrics + PagerDuty / Slack alerts<br/>rows_processed · dq_failed_rules</div>
+          </div>
+          <div class="arch6-node" style="margin-bottom:0">
+            <div class="arch6-node-icon">📋</div>
+            <div class="arch6-node-name">Cloud Logging</div>
+            <div class="arch6-node-sub">Structured JSON logs → Log Sink → BQ<br/>audit.spark_logs table</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connection flow summary -->
+      <div class="arch6-connections">
+        <div class="arch6-connections-title">Data Flow Sequence</div>
+        <div class="arch6-conn-grid">
+          <div class="arch6-conn-item"><span class="step-badge">1</span> Composer triggers DAG on last day of month (02:00 UTC)</div>
+          <div class="arch6-conn-item"><span class="step-badge">2</span> DataprocCreateClusterOperator spins up ephemeral cluster</div>
+          <div class="arch6-conn-item"><span class="step-badge">3</span> PySpark job reads Raw → computes SHA256 hashes → Left Anti Join</div>
+          <div class="arch6-conn-item"><span class="step-badge">4</span> Delta records (NEW + CHANGED) written to Staging partition (APPEND)</div>
+          <div class="arch6-conn-item"><span class="step-badge">5</span> Spark SQL transformation → write to Curation partition (OVERWRITE)</div>
+          <div class="arch6-conn-item"><span class="step-badge" style="background:#00BCD4;">6</span> Dataplex DQ scans triggered on both staging + curation writes</div>
+          <div class="arch6-conn-item"><span class="step-badge" style="background:#EA4335;">7</span> DataprocDeleteClusterOperator (trigger_rule=all_done) — always runs</div>
+          <div class="arch6-conn-item"><span class="step-badge" style="background:#34A853;">8</span> Audit log written → Looker Studio dashboard auto-refreshes</div>
+        </div>
+      </div>
+    </div>
+    <!-- ── End Approach 6 Custom Architecture Diagram ──────────────────── -->
+
+    <div class="diagram-wrap">
+      <div class="diagram-label">🏞️ Dataplex Governance Architecture</div>
+      <pre class="mermaid">
+flowchart TD
+    subgraph LAKE["🏞️ Dataplex Lake — delta_ingestion_lake"]
+        subgraph RAW_ZONE["📦 Raw Zone  (type: RAW)"]
+            RA1["BQ Raw Dataset\nRead-only IAM"]
+        end
+        subgraph STG_ZONE["📋 Staging Zone  (type: CURATED)"]
+            SA1["BQ Staging Dataset\nPartition metadata tagged"]
+            DQ1["🔍 DQ Scan: staging_dq_monthly\nnull · uniqueness · format · row_count"]
+        end
+        subgraph CUR_ZONE["🏛️ Curation Zone  (type: CURATED)"]
+            CA1["BQ Curation Dataset\nBusiness metadata tags"]
+            DQ2["🔍 DQ Scan: curation_dq_monthly\nreferential · range · business rules"]
+        end
+        subgraph CATALOG["📖 Dataplex Catalog"]
+            C1["Auto-Discovery\nAll BQ tables registered"]
+            C2["Metadata Tags\nbusiness_domain · owner"]
+            C3["Unified Search\nacross all layers"]
+        end
+        subgraph LINEAGE["🔗 Data Lineage"]
+            L1["Raw → Staging → Curation\nauto-tracked via BQ API"]
+        end
+        subgraph SECURITY["🔐 Zone-Level IAM"]
+            S1["Raw Zone\nread-only"]
+            S2["Staging Zone\npipeline-sa write"]
+            S3["Curation Zone\nBI read"]
+        end
+    end
+    DAG_TRIGGER["🎼 Composer DAG\nDQ Scan Operator"]
+    DQ_RESULTS[("📊 audit.dq_scan_results")]
+    ALERT["🔔 DQ Failure Alert\nPagerDuty HIGH"]
+
+    DAG_TRIGGER -->|"trigger staging scan"| DQ1
+    DAG_TRIGGER -->|"trigger curation scan"| DQ2
+    DQ1 -->|"write results"| DQ_RESULTS
+    DQ2 -->|"write results"| DQ_RESULTS
+    DQ_RESULTS -->|"threshold breach"| ALERT
+    SA1 --> C1
+    CA1 --> C1
+    RA1 --> C1
+    C1 --> L1
+      </pre>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-label">🔄 Full DAG Pipeline Flow</div>
+      <pre class="mermaid">
+flowchart TD
+    A([" ⏰ Cron: 0 2 28-31 * *"]) --> B
+    B["validate_is_last_day\nPythonOperator\nSkip if not month-end"]
+    B --> C["check_raw_data_exists\nBigQuerySensor\nWait for raw data"]
+    C --> D["create_dataproc_cluster\nDataprocCreateClusterOperator\nephemeral · autoscale 2-10"]
+    D --> E{Cluster OK?}
+    E -->|Fail| F["cluster_create_failed\nPagerDuty CRITICAL\nstatus = CLUSTER_FAILED"]
+    F --> FAIL(["❌ DAG Failed"])
+    E -->|OK| G["log_cluster_ready\nEmit structured log"]
+    G --> H["submit_spark_delta_job\nDataprocSubmitJobOperator\nPySpark from GCS"]
+    H --> I
+    subgraph SPARK_JOB["⚙️ PySpark Job — Dataproc Cluster"]
+        I["Read Raw Table\ningestion_date partition"]
+        I --> J["Compute SHA256 Hashes\nall value columns"]
+        J --> K["Read Staging Hashes\npk + row_hash only"]
+        K --> L["Detect NEW Rows\nLeft Anti Join on PK"]
+        L --> M["Detect CHANGED Rows\nInner Join + hash diff"]
+        M --> N["Union Delta Records\nadd _ingested_at, _run_id"]
+        N --> O{delta_df > 0?}
+        O -->|No| P["Write NO_DELTA\nexit cleanly"]
+        O -->|Yes| Q["Write Staging Partition\nBQ Connector APPEND"]
+        Q --> R["Flag UNPROCESSED\naudit.partition_metadata"]
+        R --> S["Spark SQL Transform\nbusiness rules applied"]
+        S --> T["Write Curation Partition\nBQ Connector OVERWRITE"]
+        T --> U["Mark PROCESSED\nemit completion log"]
+    end
+    U --> V["validate_staging_write\nBigQueryCheckOperator\nCOUNT > 0"]
+    V --> V2["trigger_staging_dq_scan\nDQ Operator\nnull · uniqueness · format"]
+    V2 --> V3{DQ Passed?}
+    V3 -->|Fail| V4["dq_staging_failed\nPagerDuty HIGH\nblock downstream"]
+    V3 -->|Pass| W["delete_dataproc_cluster\nall_done trigger rule\nZero idle cost"]
+    V4 --> W
+    W --> W2["trigger_curation_dq_scan\nreferential · range · rules"]
+    W2 --> X["write_audit_log\nInsert into audit.pipeline_runs"]
+    X --> Y["notify_completion\nSlack · PagerDuty\nLooker refreshes"]
+    Y --> Z(["✅ DAG Complete\nCluster deleted"])
+      </pre>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-label">📊 Observability Dashboard Architecture</div>
+      <pre class="mermaid">
+flowchart TD
+    subgraph SOURCES["📥 Data Sources"]
+        CL["☁️ Cloud Logging\nStructured JSON logs"]
+        BQ_AUDIT["📦 BigQuery\naudit.pipeline_runs"]
+        DQ_RES["✅ Dataplex DQ Results\naudit.dq_scan_results"]
+        CM["📈 Cloud Monitoring\ncustom metrics"]
+    end
+    subgraph ROUTING["🔄 Log Routing"]
+        LS["Log Sink\nLogging → BQ audit table"]
+    end
+    subgraph DASHBOARD["📊 Looker Studio — 5-Page Report"]
+        P1["📄 Page 1\nPipeline Overview\nRuns · Status · Duration"]
+        P2["📄 Page 2\nPartition Tracker\nStatus · Rows · Time"]
+        P3["📄 Page 3\nCluster Metrics\nLifetime · Workers · Stages"]
+        P4["📄 Page 4\nDelta Quality\nNEW vs CHANGED · Validation"]
+        P5["📄 Page 5 ✨\nDataplex DQ Results\nPass rate · Rules · Trends"]
+    end
+    subgraph ALERTS["🔔 Monitoring Alerts"]
+        A1["Run > 3 hrs\nPagerDuty CRITICAL"]
+        A2["delta=0 three months\nSlack WARNING"]
+        A3["Cluster fail\nPagerDuty CRITICAL"]
+        A4["Staging write fail\nPagerDuty HIGH"]
+        A5["DQ critical fail\nPagerDuty HIGH"]
+    end
+
+    CL --> LS --> BQ_AUDIT
+    DQ_RES --> P5
+    BQ_AUDIT --> P1
+    BQ_AUDIT --> P2
+    BQ_AUDIT --> P3
+    BQ_AUDIT --> P4
+    CM --> ALERTS
+    BQ_AUDIT --> ALERTS
+    DQ_RES --> ALERTS
+      </pre>
+    </div>
+
+    <h3>🧩 Component List</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Component</th><th>GCP Service</th><th>Purpose</th><th>Config Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Cloud Composer 2</td><td>Cloud Composer</td><td>DAG scheduling + full lifecycle orchestration</td><td><code>composer-2-medium</code>; schedule <code>0 2 28-31 * *</code></td></tr>
+          <tr><td>Last-Day Validator</td><td>PythonOperator (Airflow)</td><td>Skip non-month-end runs automatically</td><td>Uses <code>calendar.monthrange()</code> + <code>AirflowSkipException</code></td></tr>
+          <tr><td>BigQuerySensor</td><td>Airflow Sensor</td><td>Wait for raw data to be available</td><td>Polls raw table; <code>poke_interval=120s</code>, <code>timeout=3600s</code></td></tr>
+          <tr><td>DataprocCreateClusterOperator</td><td>Airflow Operator</td><td>Spin up ephemeral Dataproc cluster on demand</td><td>Cluster name includes run date for uniqueness</td></tr>
+          <tr><td>Ephemeral Dataproc Cluster</td><td>Cloud Dataproc</td><td>Execute PySpark delta job; created per run, destroyed after</td><td><code>n2-standard-8</code> workers, 2–10 autoscale, preemptible secondary</td></tr>
+          <tr><td>Dataproc Autoscaling Policy</td><td>Cloud Dataproc</td><td>Dynamically adjust worker count based on YARN queue</td><td><code>scaleUpFactor=1.0</code>, min=2, max=10</td></tr>
+          <tr><td>DataprocSubmitJobOperator</td><td>Airflow Operator</td><td>Submit PySpark script with all runtime arguments</td><td>Async with polling; injects all table names, dates, run_id</td></tr>
+          <tr><td>PySpark Delta Script</td><td>GCS → Dataproc</td><td>Core logic: read BQ raw, hash compare, detect delta, write</td><td>SHA256 via <code>sha2(concat_ws(...))</code> DataFrame API</td></tr>
+          <tr><td>Spark-BQ Connector</td><td>BigQuery Connector for Spark</td><td>Read and write BigQuery tables from Spark workers</td><td><code>spark-bigquery-with-dependencies_2.12</code> JAR</td></tr>
+          <tr><td>DataprocDeleteClusterOperator</td><td>Airflow Operator</td><td>Destroy cluster post-run (<code>trigger_rule=all_done</code>)</td><td>Guaranteed deletion even if Spark job failed</td></tr>
+          <tr><td>BigQueryCheckOperator</td><td>Airflow Operator</td><td>Validate staging partition was written before proceeding</td><td>Fails DAG if <code>COUNT(*) = 0</code> for run date partition</td></tr>
+          <tr><td>Dataplex Lake</td><td>Cloud Dataplex</td><td>Top-level logical container for all three data layers</td><td><code>delta_ingestion_lake</code>; single lake per GCP project</td></tr>
+          <tr><td>Dataplex Raw Zone</td><td>Cloud Dataplex</td><td>Logical zone wrapping BQ raw dataset; read-only access</td><td>Zone type: <code>RAW</code>; asset: <code>project.raw_dataset</code></td></tr>
+          <tr><td>Dataplex Staging Zone</td><td>Cloud Dataplex</td><td>Logical zone wrapping BQ staging dataset</td><td>Zone type: <code>CURATED</code>; DQ scan triggered post-write</td></tr>
+          <tr><td>Dataplex Curation Zone</td><td>Cloud Dataplex</td><td>Logical zone wrapping BQ curation dataset</td><td>Zone type: <code>CURATED</code>; DQ scan triggered post-write</td></tr>
+          <tr><td>Dataplex DQ Scan — Staging</td><td>Cloud Dataplex</td><td>Automated DQ checks on new staging partition</td><td>Rules: null_check, uniqueness on PK, format_check, row_count_threshold</td></tr>
+          <tr><td>Dataplex DQ Scan — Curation</td><td>Cloud Dataplex</td><td>Automated DQ checks on new curation partition</td><td>Rules: referential_integrity, range_check, business_rule_validation</td></tr>
+          <tr><td>DataplexCreateOrUpdateDataQualityScanOperator</td><td>Airflow Operator</td><td>Trigger Dataplex DQ scans from Composer DAG</td><td>Triggered twice per run: after staging + after curation write</td></tr>
+          <tr><td>Dataplex DQ Results Table</td><td>BigQuery</td><td>Per-rule DQ scan results for every partition</td><td><code>audit.dq_scan_results</code>; feeds Looker Studio Page 5</td></tr>
+          <tr><td>Dataplex Catalog</td><td>Cloud Dataplex</td><td>Auto-discovers and registers all BQ table schemas</td><td>Tags: <code>business_domain</code>, <code>data_classification</code>, <code>owner</code></td></tr>
+          <tr><td>Dataplex Data Lineage</td><td>Cloud Dataplex</td><td>End-to-end lineage: Raw → Staging → Curation</td><td>Auto-captured via BQ lineage API; visible in Dataplex UI</td></tr>
+          <tr><td>Dataplex Zone-Level IAM</td><td>Cloud Dataplex</td><td>Unified access control enforced at zone level</td><td>Raw: read-only; Staging: pipeline-sa write; Curation: BI read</td></tr>
+          <tr><td>Looker Studio Dashboard</td><td>Looker Studio</td><td>5-page live observability report including DQ results</td><td>Data source: <code>audit.*</code> tables including <code>dq_scan_results</code></td></tr>
+          <tr><td>Cloud Logging Log Sink</td><td>Cloud Logging</td><td>Route Spark + Composer logs into BigQuery</td><td>Sink filter: <code>labels.run_id</code> → <code>audit_dataset</code></td></tr>
+          <tr><td>Cloud Monitoring</td><td>Cloud Monitoring</td><td>Custom metrics + threshold-based alerting</td><td><code>delta_pipeline/rows_processed</code>, <code>delta_pipeline/dq_failed_rules</code></td></tr>
+          <tr><td>Secret Manager</td><td>Secret Manager</td><td>Store BQ service account keys, Slack webhook URL</td><td>Accessed by Composer via Airflow GCP secret backend</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>✅ Pros &amp; ❌ Cons</h3>
+    <div class="table-wrap">
+      <table class="pros-cons-table">
+        <tbody>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Zero Idle Compute Cost</strong></td><td>Dataproc cluster exists only for job duration (~60–90 min/month)</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Full Orchestration</strong></td><td>Composer manages scheduling, retries, cluster lifecycle, DQ scans, validation in a single DAG</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Ephemeral = Clean State</strong></td><td>Each run gets a fresh cluster — no state pollution, no version drift</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Automated Data Quality</strong></td><td>Dataplex DQ scans run after every staging and curation write automatically</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Unified Data Governance</strong></td><td>Dataplex Lake + Zones enforce consistent IAM, discovery, and access control</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Automatic Data Lineage</strong></td><td>Raw → Staging → Curation lineage tracked automatically via Dataplex + BQ lineage API</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Metadata Catalog</strong></td><td>All BQ tables auto-registered in Dataplex Catalog with business tags</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Zone-Level IAM</strong></td><td>Access policies set at zone level — not per table — simplifies governance at scale</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Live Observability Dashboard</strong></td><td>5-page Looker Studio report including Dataplex DQ results page</td></tr>
+          <tr class="pro"><td><span class="pro-badge">✅ PRO</span></td><td><strong>Month-End Pattern</strong></td><td>Ideal for regulatory, financial, and compliance pipelines</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Cluster Startup Latency</strong></td><td>3–6 min Dataproc spin-up — unsuitable for sub-hour or latency-sensitive workloads</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Composer Always-On Cost</strong></td><td>Composer 2 environment ~$300–800/month regardless of DAG frequency</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Dataplex DQ Scan Latency</strong></td><td>Each DQ scan adds 5–15 min to total pipeline duration</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Dataplex Setup Overhead</strong></td><td>Initial Lake, Zone, Asset, and DQ rule configuration requires upfront planning</td></tr>
+          <tr class="con"><td><span class="con-badge">❌ CON</span></td><td><strong>Multi-Technology Expertise</strong></td><td>Requires knowledge across PySpark, Dataproc, Dataplex DQ, and BQ connector tuning</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- COMPARISON REPORT -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="approach-section" id="comparison">
+  <div class="comparison-hero">
+    <div class="approach-num" style="color:#34A853">Comparison Report</div>
+    <div class="approach-title">📊 All Approaches Side-by-Side</div>
+    <div class="approach-subtitle">Full evaluation matrix across complexity, cost, scalability, observability, and data governance dimensions.</div>
+  </div>
+  <div class="comparison-body">
+
+    <h3>Core Criteria</h3>
+    <div class="table-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th>Criterion</th>
+            <th>BQ Native SQL</th>
+            <th>Dataflow</th>
+            <th>Composer</th>
+            <th>Cloud Functions</th>
+            <th>Dataproc</th>
+            <th style="background:rgba(139,92,246,0.12);color:var(--a6)">Composer + Ephemeral Dataproc ⭐</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Implementation Complexity</td><td>🟢 Low</td><td>🟡 Medium</td><td>🟡 Medium</td><td>🟢 Low</td><td>🔴 High</td><td class="highlight">🟡 Medium</td></tr>
+          <tr><td>Operational Overhead</td><td>🟢 Low</td><td>🟡 Medium</td><td>🔴 High</td><td>🟢 Low</td><td>🔴 High</td><td class="highlight">🟡 Medium</td></tr>
+          <tr><td>Scalability</td><td>🟡 Medium</td><td>🟢 High</td><td>🟢 High</td><td>🟡 Medium</td><td>🟢 High</td><td class="highlight">🟢 High</td></tr>
+          <tr><td>Cost at Scale</td><td>🟢 Low</td><td>🟡 Medium</td><td>🔴 High</td><td>🟢 Low</td><td>🟡 Medium</td><td class="highlight">🟢 Low (ephemeral)</td></tr>
+          <tr><td>Streaming Support</td><td class="cell-no">❌ No</td><td class="cell-yes">✅ Yes</td><td class="cell-warn">⚠️ Via Dataflow</td><td class="cell-warn">⚠️ Limited</td><td class="cell-no">❌ No</td><td class="cell-no highlight">❌ No</td></tr>
+          <tr><td>Orchestration Built-in</td><td class="cell-no">❌ No</td><td class="cell-no">❌ No</td><td class="cell-yes">✅ Yes</td><td class="cell-no">❌ No</td><td class="cell-no">❌ No</td><td class="cell-yes highlight">✅ Yes (Composer)</td></tr>
+          <tr><td>Monitoring &amp; Observability</td><td>🟡 Partial</td><td>🟢 High</td><td>🟢 High</td><td>🟡 Medium</td><td>🟡 Medium</td><td class="highlight">🟢 High (Looker Dashboard)</td></tr>
+          <tr><td>Native BQ Integration</td><td>🟢 Native</td><td>🟡 SDK</td><td>🟢 Native</td><td>🟢 Native</td><td>🟡 Via Connector</td><td class="highlight">🟡 Via Connector</td></tr>
+          <tr><td>Partition-Aware Ingestion</td><td class="cell-yes">✅ Yes</td><td class="cell-yes">✅ Yes</td><td class="cell-yes">✅ Yes</td><td class="cell-warn">⚠️ Partial</td><td class="cell-yes">✅ Yes</td><td class="cell-yes highlight">✅ Yes</td></tr>
+          <tr><td>Latency</td><td>5–30 min</td><td>~1–2 min</td><td>5–30 min</td><td>5–15 min</td><td>10–30 min</td><td class="highlight">15–40 min (incl. cluster boot)</td></tr>
+          <tr><td>Max Data Volume</td><td>&lt; 500 GB</td><td>Unlimited</td><td>Unlimited</td><td>&lt; 10 GB</td><td>Unlimited</td><td class="highlight">Unlimited</td></tr>
+          <tr><td>Ephemeral Compute</td><td class="cell-yes">✅ Serverless</td><td class="cell-yes">✅ Managed</td><td class="cell-no">❌ Always-on</td><td class="cell-yes">✅ Serverless</td><td class="cell-no">❌ Persists</td><td class="cell-yes highlight">✅ On-demand cluster</td></tr>
+          <tr><td>Dashboard / Observability</td><td class="cell-no">❌ Manual</td><td>⚠️ Dataflow UI</td><td>⚠️ Airflow UI</td><td class="cell-no">❌ Manual</td><td>⚠️ Spark UI only</td><td class="cell-yes highlight">✅ Looker Studio (5-page + DQ)</td></tr>
+          <tr><td>Data Governance / Catalog</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-yes highlight">✅ Dataplex Lake + Catalog</td></tr>
+          <tr><td>Automated DQ Scans</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-yes highlight">✅ Dataplex DQ (staging + curation)</td></tr>
+          <tr><td>Data Lineage</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-no">❌ None</td><td class="cell-yes highlight">✅ Dataplex auto-lineage</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Delta Detection Capability</h3>
+    <div class="table-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th>Delta Method</th>
+            <th>BQ Native SQL</th>
+            <th>Dataflow</th>
+            <th>Composer</th>
+            <th>Cloud Functions</th>
+            <th>Dataproc</th>
+            <th style="background:rgba(139,92,246,0.12);color:var(--a6)">Composer + Ephemeral Dataproc ⭐</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>EXCEPT ALL</td><td class="cell-yes">✅ Native</td><td class="cell-warn">⚠️ Custom DoFn</td><td class="cell-yes">✅ via Operator</td><td class="cell-yes">✅ via BQ Job</td><td class="cell-yes">✅ DataFrame</td><td class="cell-yes highlight">✅ DataFrame</td></tr>
+          <tr><td>SHA256 Hash</td><td class="cell-yes">✅ Native</td><td class="cell-yes">✅ Best fit</td><td class="cell-yes">✅ via SQL Task</td><td class="cell-yes">✅ via BQ Job</td><td class="cell-yes">✅ sha2() fn</td><td class="cell-yes highlight">✅ sha2() PySpark</td></tr>
+          <tr><td>PK + Hash Join</td><td class="cell-yes">✅ Native</td><td class="cell-yes">✅ CoGroupByKey</td><td class="cell-yes">✅ via SQL Task</td><td class="cell-yes">✅ via BQ Job</td><td class="cell-yes">✅ Left Anti Join</td><td class="cell-yes highlight">✅ Left Anti Join</td></tr>
+          <tr><td>Watermark / Timestamp</td><td class="cell-yes">✅ Native</td><td class="cell-yes">✅ Windowing</td><td class="cell-yes">✅ via Sensor</td><td class="cell-yes">✅ Event-driven</td><td class="cell-yes">✅ DataFrame filter</td><td class="cell-yes highlight">✅ DataFrame filter</td></tr>
+          <tr><td>CDC / Streaming</td><td class="cell-no">❌</td><td class="cell-yes">✅ Yes</td><td class="cell-yes">✅ via Dataflow</td><td class="cell-no">❌</td><td class="cell-no">❌</td><td class="cell-no highlight">❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Cost Profile (Monthly Estimate)</h3>
+    <div class="table-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>BQ Native SQL</th>
+            <th>Dataflow</th>
+            <th>Composer</th>
+            <th>Cloud Functions</th>
+            <th>Dataproc</th>
+            <th style="background:rgba(139,92,246,0.12);color:var(--a6)">Composer + Ephemeral Dataproc ⭐</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>10 GB/day delta</td><td>~$5</td><td>~$20</td><td>~$350+</td><td>~$2</td><td>~$30</td><td class="highlight">~$310 (Composer ~$300 + ~$10/run)</td></tr>
+          <tr><td>100 GB/day delta</td><td>~$50</td><td>~$150</td><td>~$400+</td><td class="cell-warn">⚠️ Timeout risk</td><td>~$120</td><td class="highlight">~$315 (cluster ~$15/run)</td></tr>
+          <tr><td>1 TB/day delta</td><td>~$500</td><td>~$800</td><td>~$600+</td><td class="cell-no">❌ Not feasible</td><td>~$400</td><td class="highlight">~$320 (cluster ~$20/run)</td></tr>
+          <tr><td><strong>Month-end 1 TB (1× per month)</strong></td><td>~$16</td><td>~$26</td><td>~$350+</td><td class="cell-no">❌ Not feasible</td><td>~$13</td><td class="highlight"><strong>~$313</strong> (Composer idle + 1 ephemeral run)</td></tr>
+          <tr><td>Idle cost</td><td>$0</td><td>$0</td><td>~$300</td><td>$0</td><td>$0</td><td class="highlight">~$300 (Composer only)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color:var(--text-dim);font-size:13px;margin-top:12px;font-style:italic;">Composer + Ephemeral Dataproc is most cost-effective for month-end-only workloads. Dataproc cluster cost is near-zero (one 60–90 min run/month). All estimates approximate; actual costs depend on region and slot reservations.</p>
+
+    <h3>Recommended Use Case Matrix</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Your Scenario</th><th>Best Approach</th><th>Runner-Up</th></tr></thead>
+        <tbody>
+          <tr><td>Simple nightly batch, &lt; 100 GB</td><td><strong>BQ Native SQL</strong></td><td>Cloud Functions</td></tr>
+          <tr><td>Event-driven on file arrival</td><td><strong>Cloud Functions + BQ</strong></td><td>Cloud Composer</td></tr>
+          <tr><td>Streaming CDC, near real-time</td><td><strong>Dataflow (Beam)</strong></td><td>—</td></tr>
+          <tr><td>Complex multi-step enterprise pipeline</td><td><strong>Cloud Composer + BQ</strong></td><td>Composer + Dataflow</td></tr>
+          <tr><td>500 GB+ batch, existing Spark team</td><td><strong>Dataproc</strong></td><td>Dataflow</td></tr>
+          <tr><td>Mixed: batch + stream</td><td><strong>Composer + Dataflow</strong></td><td>—</td></tr>
+          <tr><td>Minimal infra, max SQL</td><td><strong>BQ Native SQL + dbt</strong></td><td>—</td></tr>
+          <tr style="background:rgba(139,92,246,0.06)"><td><strong>Month-end batch, Spark-native, full observability</strong></td><td><strong style="color:var(--a6)">Composer + Ephemeral Dataproc ⭐</strong></td><td>BQ Native SQL</td></tr>
+          <tr style="background:rgba(139,92,246,0.06)"><td><strong>Large Spark job that must not leave a running cluster</strong></td><td><strong style="color:var(--a6)">Composer + Ephemeral Dataproc ⭐</strong></td><td>Dataproc Serverless</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>🏆 Final Recommendation</h3>
+    <div class="rec-box">For most production data engineering teams:
+
+PRIMARY STACK:
+┌─────────────────────────────────────────────────────────────────┐
+│  Cloud Composer 2  +  BigQuery SQL Tasks  +  dbt Cloud / Core  │
+│                                                                 │
+│  Raw BQ Table                                                   │
+│    → [SHA256 Delta SQL via Airflow BQ Operator]                 │
+│    → Staging BQ Table (new date partition)                      │
+│    → [Metadata Flag: UNPROCESSED]                               │
+│    → [Airflow Partition Sensor]                                 │
+│    → [dbt model: staging → curation]                           │
+│    → Curation BQ Table                                          │
+│    → [Metadata Flag: PROCESSED + Audit Log]                     │
+└─────────────────────────────────────────────────────────────────┘
+
+  SCALE-OUT:    Add Dataflow when any partition exceeds 200 GB
+  LIGHTWEIGHT:  BQ Scheduled Queries + BQ Native SQL for &lt; 50 GB daily
+  EVENT-DRIVEN: Cloud Functions + Eventarc for file-arrival triggers
+
+┌─────────────────────────────────────────────────────────────────┐
+│  MONTH-END BATCH  —  Approach 6 (with Dataplex) ⭐             │
+│                                                                 │
+│  Cloud Composer 2  (last day of month, 02:00)                   │
+│    → validate_is_last_day  (skip non-month-end runs)            │
+│    → DataprocCreateClusterOperator  (ephemeral, autoscale 2–10) │
+│    → DataprocSubmitJobOperator                                  │
+│        PySpark: SHA256 hash compare  Raw vs Staging             │
+│        → Left Anti Join  →  NEW rows                           │
+│        → Inner Join hash mismatch  →  CHANGED rows             │
+│        → Write delta to Staging partition (new DATE partition)  │
+│        → Flag UNPROCESSED in audit.partition_metadata           │
+│        → Apply transformation  →  Write to Curation layer      │
+│        → Mark PROCESSED + emit structured JSON logs             │
+│    → Dataplex DQ Scan (staging)  — null, uniqueness, format     │
+│    → Dataplex DQ Scan (curation) — referential, business rules  │
+│    → DataprocDeleteClusterOperator  (trigger_rule=all_done)     │
+│    → Insert into audit.pipeline_runs + audit.dq_scan_results    │
+│    → Looker Studio 5-page dashboard auto-refreshes              │
+│                                                                 │
+│  Dataplex provides across all 3 BQ layers:                      │
+│    Lake / Zone / Asset organisation                             │
+│    Automated metadata catalog + business tagging               │
+│    End-to-end data lineage  (Raw → Staging → Curation)         │
+│    Zone-level IAM  (replaces per-table access policies)        │
+│    DQ scan results surfaced in dashboard Page 5                │
+│                                                                 │
+│  Dataproc cost ≈ $10–20/month  (one 60–90 min run only)         │
+│  Full observability via 5-page Looker Studio report             │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+  </div>
+</div>
+
+<!-- ─── Footer ─────────────────────────────────────────────────────────────── -->
+<footer>
+  <strong>GCP Delta Ingestion Framework — Architecture Comparison Report v6</strong><br/>
+  March 2026 &nbsp;·&nbsp; Solution Architecture &nbsp;·&nbsp; Google Cloud Platform<br/>
+  <span style="margin-top:8px;display:block;opacity:0.5;font-size:11px;">Approaches 1–5: BigQuery Native SQL · Dataflow · Composer · Cloud Functions · Dataproc &nbsp;|&nbsp; Approach 6: Composer + Ephemeral Dataproc + PySpark + Dataplex Governance + Looker Studio Dashboard</span>
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#0E1420',
+      primaryColor: '#1E3A5F',
+      primaryTextColor: '#D8E8F8',
+      primaryBorderColor: '#3A5A80',
+      lineColor: '#5A7AA0',
+      secondaryColor: '#1A2A40',
+      tertiaryColor: '#0E1A2E',
+      clusterBkg: '#0D1828',
+      clusterBorder: '#2A3A5A',
+      titleColor: '#fff',
+      edgeLabelBackground: '#0E1420',
+      fontFamily: 'Plus Jakarta Sans, sans-serif',
+      fontSize: '14px',
+      nodeBorder: '#3A5A80',
+      mainBkg: '#1E3A5F',
+    },
+    flowchart: {
+      curve: 'basis',
+      padding: 18,
+      nodeSpacing: 30,
+      rankSpacing: 45,
+      useMaxWidth: true,
+      htmlLabels: true,
+      subGraphTitleMargin: { top: 20, bottom: 5 },
+    },
+    securityLevel: 'loose',
+  });
+
+
+</script>
+</body>
+</html>
